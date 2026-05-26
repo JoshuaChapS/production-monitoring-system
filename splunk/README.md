@@ -11,3 +11,8 @@ index="trading" earliest=-5m
 
 ## Real-time Timechart
 index="trading" | timechart count by level
+
+## Webhook Configuration
+- Action: Webhook
+- URL: http://localhost:8080/alert
+- Trigger: When error_rate > 25% in last 15 minutes
