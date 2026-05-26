@@ -19,7 +19,18 @@ string getTimestamp() {
 }
 
 int main() {
-    ofstream logFile("trading_app.log", ios::trunc);
+    const char* logPath = getenv("LOG_PATH");
+    if (!logPath) {
+        cerr << "ERROR: LOG_PATH not set\n";
+        return 1;
+    }
+    
+    ofstream logFile(logPath, ios::trunc);
+    if (!logFile.is_open()) {
+        cerr << "ERROR: Cannot open log file at " << logPath << "\n";
+        return 1;
+    }
+    
 
     vector<string> errors  = {"DB_TIMEOUT", "AUTH_FAILED", "NULL_POINTER", "CONNECTION_REFUSED"};
     vector<string> levels  = {"INFO", "INFO", "INFO", "WARNING", "ERROR"};
