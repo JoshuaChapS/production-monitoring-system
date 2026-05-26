@@ -19,7 +19,18 @@ string getTimestamp() {
 }
 
 int main() {
-    ofstream logFile("trading_app.log", ios::trunc);
+    const char* logPath = getenv("LOG_PATH");
+    if (!logPath) {
+        cerr << "ERROR: LOG_PATH not set\n";
+        return 1;
+    }
+    
+    ofstream logFile(logPath, ios::trunc);
+    if (!logFile.is_open()) {
+        cerr << "ERROR: Cannot open log file at " << logPath << "\n";
+        return 1;
+    }
+    
 
     vector<string> errors  = {"DB_TIMEOUT", "AUTH_FAILED", "NULL_POINTER", "CONNECTION_REFUSED"};
     vector<string> levels  = {"INFO", "INFO", "INFO", "WARNING", "ERROR"};
@@ -29,14 +40,14 @@ int main() {
     srand(time(nullptr));
 
     bool incident = false;
-    int counter = 0;
+    int counter = 180;
 
     while (true) {
         counter++;
-        if (counter == 60) incident = true;   // incidente a los 30 seg
-        if (counter == 100) {
+        if (counter == 200) incident = true;   // incidente a los 100 seg
+        if (counter == 240) {                  // dura 20 seg
             incident = false;
-            counter = 0;  // reinicia el ciclo
+            counter = 0;
         }
         string level;
         if (incident) {

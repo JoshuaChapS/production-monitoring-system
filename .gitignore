@@ -69,3 +69,4 @@ Testing/
 .cache/
 logs/
 .env
+logger/trading_logger
