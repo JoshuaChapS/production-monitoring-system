@@ -34,16 +34,28 @@ string ticketToJson(const Ticket& t) {
     "}";
 }
 
+string extractErrorRate(const string& body) {
+    string key = "\"error_rate\": \"";
+    size_t start = body.find(key);
+    if (start == string::npos) return "0.0";
+    
+    start += key.length();
+    size_t end = body.find("\"", start);
+    return body.substr(start, end - start);
+}
+
 int main() {
     httplib::Server server;
 
     // POST /alert — Splunk nos avisa
     server.Post("/alert", [](const httplib::Request& req, httplib::Response& res) {
+        
         Ticket t;
         t.id         = nextId++;
         t.timestamp  = getTimestamp();
-        t.priority   = "P1";
-        t.error_rate = 0.0;
+        string error_rate_str = extractErrorRate(req.body);
+        t.error_rate = stod(error_rate_str);
+        t.priority   = (t.error_rate > 50) ? "P1" : "P2";
         t.status     = "open";
         tickets.push_back(t);
 
