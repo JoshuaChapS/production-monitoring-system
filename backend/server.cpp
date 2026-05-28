@@ -46,10 +46,15 @@ string extractErrorRate(const string& body) {
 
 int main() {
     httplib::Server server;
-
+    server.Options(".*", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
+        res.set_header("Access-Control-Allow-Headers", "Content-Type");
+        res.status = 204;
+    });
     // POST /alert — Splunk nos avisa
     server.Post("/alert", [](const httplib::Request& req, httplib::Response& res) {
-        
+        res.set_header("Access-Control-Allow-Origin", "*");
         Ticket t;
         t.id         = nextId++;
         t.timestamp  = getTimestamp();
@@ -65,6 +70,7 @@ int main() {
 
     // GET /tickets — React pide todos los tickets
     server.Get("/tickets", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
         string json = "[";
         for (int i = 0; i < tickets.size(); i++) {
             json += ticketToJson(tickets[i]);
@@ -76,6 +82,7 @@ int main() {
 
     // PUT /tickets/:id — React resuelve un ticket
     server.Put("/tickets/(\\d+)", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
         int id = stoi(req.matches[1]);
         for (auto& t : tickets) {
             if (t.id == id) {
