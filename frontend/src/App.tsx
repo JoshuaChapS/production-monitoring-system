@@ -7,6 +7,7 @@ interface Ticket {
   priority: string
   error_rate: number
   status: string
+  resolution_note: string
 }
 
 function App() {

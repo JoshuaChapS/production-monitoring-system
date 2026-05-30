@@ -51,13 +51,14 @@ void initDB() {
 }
 
 string rowToJson(int id, const string& timestamp, const string& priority,
-                 double error_rate, const string& status) {
+                 double error_rate, const string& status, const string& resolution_note) {
     return "{"
         "\"id\":" + to_string(id) + ","
         "\"timestamp\":\"" + timestamp + "\","
         "\"priority\":\"" + priority + "\","
         "\"error_rate\":" + to_string(error_rate) + ","
-        "\"status\":\"" + status + "\""
+        "\"status\":\"" + status + "\","
+        "\"resolution_note\":\"" + resolution_note + "\""
     "}";
 }
 
@@ -94,7 +95,7 @@ int main() {
 
         int id = (int)sqlite3_last_insert_rowid(db);
         cout << "Ticket created: INC-00" << id << " at " << timestamp << "\n";
-        res.set_content(rowToJson(id, timestamp, priority, error_rate, "open"), "application/json");
+        res.set_content(rowToJson(id, timestamp, priority, error_rate, "open", ""), "application/json");
     });
 
     // GET /tickets — React pide todos los tickets
@@ -102,7 +103,7 @@ int main() {
         res.set_header("Access-Control-Allow-Origin", "*");
 
         sqlite3_stmt* stmt;
-        const char* sql = "SELECT id, timestamp, priority, error_rate, status FROM tickets ORDER BY id DESC;";
+        const char* sql = "SELECT id, timestamp, priority, error_rate, status, COALESCE(resolution_note, '') FROM tickets ORDER BY id DESC;";
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
 
         string json = "[";
@@ -110,12 +111,13 @@ int main() {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             if (!first) json += ",";
             first = false;
-            int id            = sqlite3_column_int(stmt, 0);
-            string timestamp  = (const char*)sqlite3_column_text(stmt, 1);
-            string priority   = (const char*)sqlite3_column_text(stmt, 2);
-            double error_rate = sqlite3_column_double(stmt, 3);
-            string status     = (const char*)sqlite3_column_text(stmt, 4);
-            json += rowToJson(id, timestamp, priority, error_rate, status);
+            int id               = sqlite3_column_int(stmt, 0);
+            string timestamp     = (const char*)sqlite3_column_text(stmt, 1);
+            string priority      = (const char*)sqlite3_column_text(stmt, 2);
+            double error_rate    = sqlite3_column_double(stmt, 3);
+            string status        = (const char*)sqlite3_column_text(stmt, 4);
+            string resolution_note = (const char*)sqlite3_column_text(stmt, 5);
+            json += rowToJson(id, timestamp, priority, error_rate, status, resolution_note);
         }
         json += "]";
         sqlite3_finalize(stmt);
@@ -129,10 +131,21 @@ int main() {
 
         int id = stoi(req.matches[1]);
 
+        // Extraer resolution_note del body
+        string key = "\"resolution_note\":\"";
+        string resolution_note = "";
+        size_t start = req.body.find(key);
+        if (start != string::npos) {
+            start += key.length();
+            size_t end = req.body.find("\"", start);
+            resolution_note = req.body.substr(start, end - start);
+        }
+
         sqlite3_stmt* stmt;
-        const char* sql = "UPDATE tickets SET status='resolved' WHERE id=?;";
+        const char* sql = "UPDATE tickets SET status='resolved', resolution_note=? WHERE id=?;";
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-        sqlite3_bind_int(stmt, 1, id);
+        sqlite3_bind_text(stmt, 1, resolution_note.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_int(stmt, 2, id);
         sqlite3_step(stmt);
         sqlite3_finalize(stmt);
 
@@ -141,9 +154,8 @@ int main() {
             return;
         }
 
-        // Regresar el ticket actualizado
         sqlite3_stmt* sel;
-        const char* selSql = "SELECT id, timestamp, priority, error_rate, status FROM tickets WHERE id=?;";
+        const char* selSql = "SELECT id, timestamp, priority, error_rate, status, COALESCE(resolution_note, '') FROM tickets WHERE id=?;";
         sqlite3_prepare_v2(db, selSql, -1, &sel, nullptr);
         sqlite3_bind_int(sel, 1, id);
         sqlite3_step(sel);
@@ -152,7 +164,8 @@ int main() {
             (const char*)sqlite3_column_text(sel, 1),
             (const char*)sqlite3_column_text(sel, 2),
             sqlite3_column_double(sel, 3),
-            (const char*)sqlite3_column_text(sel, 4)
+            (const char*)sqlite3_column_text(sel, 4),
+            (const char*)sqlite3_column_text(sel, 5)
         );
         sqlite3_finalize(sel);
 
