@@ -71,3 +71,4 @@ logs/
 .env
 logger/trading_logger
 backend/server
+backend/tickets.db

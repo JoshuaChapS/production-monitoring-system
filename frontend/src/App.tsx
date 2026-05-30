@@ -11,6 +11,7 @@ interface Ticket {
 
 function App() {
   const [tickets, setTickets] = useState<Ticket[]>([])
+  const [activeTab, setActiveTab] = useState<'open' | 'resolved'>('open')
 
   const fetchTickets = () => {
     fetch('http://localhost:8080/tickets')
@@ -26,6 +27,7 @@ function App() {
 
   const openTickets = tickets.filter(t => t.status === 'open')
   const resolvedTickets = tickets.filter(t => t.status === 'resolved')
+  const visibleTickets = activeTab === 'open' ? openTickets : resolvedTickets
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-8">
@@ -47,19 +49,38 @@ function App() {
           </div>
         </div>
 
-        <h2 className="text-xl font-semibold text-red-400 mb-4">
-          Active Incidents
-        </h2>
-        {openTickets.map(ticket => (
-          <TicketCard key={ticket.id} {...ticket} onResolve={fetchTickets} />
-        ))}
+        {/* Pestañas */}
+        <div className="flex border-b border-gray-700 mb-6">
+          <button
+            onClick={() => setActiveTab('open')}
+            className={`px-6 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === 'open'
+                ? 'border-red-400 text-red-400'
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            Active Incidents ({openTickets.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('resolved')}
+            className={`px-6 py-2 text-sm font-semibold border-b-2 transition-colors ${
+              activeTab === 'resolved'
+                ? 'border-green-400 text-green-400'
+                : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            Resolved ({resolvedTickets.length})
+          </button>
+        </div>
 
-        <h2 className="text-xl font-semibold text-green-400 mt-8 mb-4">
-          Resolved
-        </h2>
-        {resolvedTickets.map(ticket => (
-          <TicketCard key={ticket.id} {...ticket} onResolve={fetchTickets} />
-        ))}
+        {/* Tickets */}
+        {visibleTickets.length === 0 ? (
+          <p className="text-gray-500 text-center py-12">No tickets here.</p>
+        ) : (
+          visibleTickets.map(ticket => (
+            <TicketCard key={ticket.id} {...ticket} onResolve={fetchTickets} />
+          ))
+        )}
 
       </div>
     </div>
