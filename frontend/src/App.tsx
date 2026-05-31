@@ -15,10 +15,12 @@ function App() {
   const [activeTab, setActiveTab] = useState<'open' | 'resolved'>('open')
 
   const fetchTickets = () => {
-    fetch('http://localhost:8080/tickets')
-      .then(res => res.json())
-      .then(data => setTickets(data))
-  }
+  fetch('http://localhost:8080/tickets')
+    .then(res => res.json())
+    .then(data => {
+      if (Array.isArray(data)) setTickets(data)  // solo si es array
+    })
+}
 
   useEffect(() => {
     fetchTickets()
