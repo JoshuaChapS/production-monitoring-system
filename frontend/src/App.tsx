@@ -3,6 +3,7 @@ import TicketCard from './TicketCard'
 import LoginPage from './LoginPage'
 import TeamPanel from './TeamPanel'
 import type { Ticket, AuthUser } from './types'
+import { API_URL } from './config'
 
 function App() {
   const [auth, setAuth]           = useState<AuthUser | null>(null)
@@ -16,7 +17,7 @@ function App() {
   }, [])
 
   const fetchTickets = (token: string) => {
-    fetch('http://localhost:8080/tickets', {
+    fetch(`${API_URL}/tickets`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())

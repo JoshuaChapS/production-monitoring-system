@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/tickets.db:/app/tickets.db
+    env_file:
+      - .env.docker
+    restart: unless-stopped
+
+  logger:
+    build: ./logger
+    volumes:
+      - /mnt/c/Users/yosoy/OneDrive/Documentos/Aprendizaje/JPM/logs:/logs
+    env_file:
+      - .env.docker
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    depends_on:
+      - backend
+    restart: unless-stopped

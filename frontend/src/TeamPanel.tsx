@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 
+import { API_URL } from './config'
+
 interface Developer {
   id: number
   username: string
@@ -22,7 +24,7 @@ function TeamPanel({ token }: TeamPanelProps) {
   const [success, setSuccess]         = useState('')
 
   const fetchDevelopers = () => {
-    fetch('http://localhost:8080/users', {
+    fetch(`${API_URL}/users`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())

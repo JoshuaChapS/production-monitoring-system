@@ -2,6 +2,9 @@ import { useState } from 'react'
 import type { Ticket } from './types'
 import { TEAMS } from './TeamPanel'
 
+import { API_URL } from './config'
+
+
 interface TicketCardProps extends Ticket {
   token: string
   role: string
@@ -18,7 +21,7 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
   const [selectedTeam, setSelectedTeam] = useState(TEAMS[0])
 
   const handleResolve = () => {
-    fetch(`http://localhost:8080/tickets/${id}`, {
+    fetch(`${API_URL}/tickets/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -33,7 +36,7 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
   }
 
   const handleAssign = () => {
-    fetch(`http://localhost:8080/tickets/${id}/assign`, {
+    fetch(`${API_URL}/tickets/${id}/assign`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
