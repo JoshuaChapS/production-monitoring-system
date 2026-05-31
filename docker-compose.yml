@@ -6,15 +6,15 @@ services:
     volumes:
       - ./backend/tickets.db:/app/tickets.db
     env_file:
-      - .env
+      - .env.docker
     restart: unless-stopped
 
   logger:
     build: ./logger
     volumes:
-      - ./logs:/logs
+      - /mnt/c/Users/yosoy/OneDrive/Documentos/Aprendizaje/JPM/logs:/logs
     env_file:
-      - .env
+      - .env.docker
     restart: unless-stopped
     depends_on:
       - backend
