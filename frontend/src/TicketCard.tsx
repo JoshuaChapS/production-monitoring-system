@@ -1,16 +1,21 @@
 import { useState } from 'react'
 import type { Ticket } from './types'
+import { TEAMS } from './TeamPanel'
 
 interface TicketCardProps extends Ticket {
   token: string
+  role: string
   onResolve: () => void
+  onAssigned: () => void
 }
 
 function TicketCard({ id, timestamp, priority, error_rate, status,
                       resolution_note, team, resolved_by,
-                      token, onResolve }: TicketCardProps) {
-  const [showModal, setShowModal] = useState(false)
-  const [note, setNote]           = useState('')
+                      token, role, onResolve, onAssigned }: TicketCardProps) {
+  const [showModal, setShowModal]       = useState(false)
+  const [showAssign, setShowAssign]     = useState(false)
+  const [note, setNote]                 = useState('')
+  const [selectedTeam, setSelectedTeam] = useState(TEAMS[0])
 
   const handleResolve = () => {
     fetch(`http://localhost:8080/tickets/${id}`, {
@@ -24,6 +29,20 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
       setShowModal(false)
       setNote('')
       onResolve()
+    })
+  }
+
+  const handleAssign = () => {
+    fetch(`http://localhost:8080/tickets/${id}/assign`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ team: selectedTeam })
+    }).then(() => {
+      setShowAssign(false)
+      onAssigned()
     })
   }
 
@@ -54,15 +73,29 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
         <p className="text-gray-400 text-sm mt-1 italic">Note: {resolution_note}</p>
       )}
 
+      {/* Botones — solo en tickets open */}
       {status === 'open' && (
-        <button
-          className="mt-3 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded"
-          onClick={() => setShowModal(true)}
-        >
-          Resolve
-        </button>
+        <div className="flex gap-2 mt-3">
+          <button
+            className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm"
+            onClick={() => setShowModal(true)}
+          >
+            Resolve
+          </button>
+
+          {/* Assign solo visible para managers */}
+          {role === 'manager' && (
+            <button
+              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm"
+              onClick={() => setShowAssign(true)}
+            >
+              {team ? 'Reassign' : 'Assign'}
+            </button>
+          )}
+        </div>
       )}
 
+      {/* Modal resolver */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
           <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-600">
@@ -87,6 +120,37 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
                 onClick={handleResolve}
               >
                 Confirm Resolve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal asignar equipo */}
+      {showAssign && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-sm border border-gray-600">
+            <h3 className="text-white font-bold text-lg mb-2">Assign INC-00{id}</h3>
+            <p className="text-gray-400 text-sm mb-4">Select the team responsible for this incident.</p>
+            <select
+              className="w-full bg-gray-700 text-white rounded px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={selectedTeam}
+              onChange={e => setSelectedTeam(e.target.value)}
+            >
+              {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <div className="flex justify-end gap-3">
+              <button
+                className="px-4 py-2 rounded text-gray-400 hover:text-white"
+                onClick={() => setShowAssign(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                onClick={handleAssign}
+              >
+                Confirm
               </button>
             </div>
           </div>

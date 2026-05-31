@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react'
 import TicketCard from './TicketCard'
 import LoginPage from './LoginPage'
+import TeamPanel from './TeamPanel'
 import type { Ticket, AuthUser } from './types'
 
 function App() {
   const [auth, setAuth]           = useState<AuthUser | null>(null)
   const [tickets, setTickets]     = useState<Ticket[]>([])
   const [activeTab, setActiveTab] = useState<'open' | 'resolved'>('open')
+  const [showAll, setShowAll]     = useState(false)
 
-  // Al montar, revisar si hay sesión guardada en localStorage
   useEffect(() => {
     const saved = localStorage.getItem('auth')
     if (saved) setAuth(JSON.parse(saved))
@@ -19,9 +20,7 @@ function App() {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setTickets(data)
-      })
+      .then(data => { if (Array.isArray(data)) setTickets(data) })
   }
 
   useEffect(() => {
@@ -31,22 +30,21 @@ function App() {
     return () => clearInterval(interval)
   }, [auth])
 
-  const handleLogin = (user: AuthUser) => {
-    setAuth(user)
-  }
-
+  const handleLogin  = (user: AuthUser) => setAuth(user)
   const handleLogout = () => {
     localStorage.removeItem('auth')
     setAuth(null)
     setTickets([])
   }
 
-  // Si no hay auth, mostrar login
   if (!auth) return <LoginPage onLogin={handleLogin} />
 
   const openTickets     = tickets.filter(t => t.status === 'open')
   const resolvedTickets = tickets.filter(t => t.status === 'resolved')
-  const visibleTickets  = activeTab === 'open' ? openTickets : resolvedTickets
+
+  // Mostrar solo 4 resueltos a menos que showAll sea true
+  const visibleResolved = showAll ? resolvedTickets : resolvedTickets.slice(0, 4)
+  const visibleTickets  = activeTab === 'open' ? openTickets : visibleResolved
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-8">
@@ -55,9 +53,7 @@ function App() {
         {/* Header */}
         <div className="flex justify-between items-start mb-2">
           <div>
-            <h1 className="text-3xl font-bold text-white">
-              Production Monitoring Dashboard
-            </h1>
+            <h1 className="text-3xl font-bold text-white">Production Monitoring Dashboard</h1>
             <p className="text-gray-400">CIB Technology</p>
           </div>
           <div className="text-right">
@@ -76,9 +72,15 @@ function App() {
           </div>
         </div>
 
-        {/* Mostrar equipo si es developer */}
         {auth.role === 'developer' && auth.team && (
           <p className="text-blue-400 text-sm mb-6">Team: {auth.team}</p>
+        )}
+
+        {/* Panel de gestión — solo managers */}
+        {auth.role === 'manager' && (
+          <div className="mt-6">
+            <TeamPanel token={auth.token} />
+          </div>
         )}
 
         {/* Counters */}
@@ -126,9 +128,21 @@ function App() {
               key={ticket.id}
               {...ticket}
               token={auth.token}
+              role={auth.role}
               onResolve={() => fetchTickets(auth.token)}
+              onAssigned={() => fetchTickets(auth.token)}
             />
           ))
+        )}
+
+        {/* Mostrar más resueltos */}
+        {activeTab === 'resolved' && resolvedTickets.length > 4 && (
+          <button
+            onClick={() => setShowAll(!showAll)}
+            className="w-full py-2 text-gray-500 hover:text-gray-300 text-sm transition-colors"
+          >
+            {showAll ? 'Show less' : `Show all ${resolvedTickets.length} resolved tickets`}
+          </button>
         )}
 
       </div>
