@@ -609,6 +609,52 @@ int main() {
         );
     });
 
+
+    // PUT /tickets/:id/assign — manager asigna ticket a un equipo
+    // Recibe: { "team": "..." }
+    server.Put("/tickets/(\\d+)/assign", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        string payload = authenticate(req, res);
+        if (payload.empty()) return;
+
+        if (getJWTField(payload, "role") != "manager") {
+            res.status = 403;
+            res.set_content("{\"error\":\"Forbidden\"}", "application/json");
+            return;
+        }
+
+        int id      = stoi(req.matches[1]);
+        string team = extractField(req.body, "team");
+
+        if (team.empty()) {
+            res.status = 400;
+            res.set_content("{\"error\":\"Missing team\"}", "application/json");
+            return;
+        }
+
+        sqlite3_stmt* stmt;
+        const char* sql = "UPDATE tickets SET team=? WHERE id=?;";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, team.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (sqlite3_changes(db) == 0) {
+            res.status = 404;
+            res.set_content("{\"error\":\"Ticket not found\"}", "application/json");
+            return;
+        }
+
+        cout << "Ticket #" << id << " assigned to team: " << team << "\n";
+        res.set_content(
+            "{\"id\":" + to_string(id) + ","
+            "\"team\":\"" + team + "\"}",
+            "application/json"
+        );
+    });
+
     cout << "Server running on port 8080\n";
     server.listen("0.0.0.0", 8080);
     return 0;
