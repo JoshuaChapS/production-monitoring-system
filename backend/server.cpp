@@ -478,6 +478,137 @@ int main() {
         res.set_content(json, "application/json");
     });
 
+
+    // POST /users — manager crea un developer
+    // Recibe: { "username": "...", "password": "...", "team": "..." }
+    server.Post("/users", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        string payload = authenticate(req, res);
+        if (payload.empty()) return;
+
+        // Solo managers pueden crear usuarios
+        if (getJWTField(payload, "role") != "manager") {
+            res.status = 403;
+            res.set_content("{\"error\":\"Forbidden\"}", "application/json");
+            return;
+        }
+
+        string username = extractField(req.body, "username");
+        string password = extractField(req.body, "password");
+        string team     = extractField(req.body, "team");
+
+        if (username.empty() || password.empty()) {
+            res.status = 400;
+            res.set_content("{\"error\":\"Missing username or password\"}", "application/json");
+            return;
+        }
+
+        string hashed = sha256(password);
+
+        sqlite3_stmt* stmt;
+        const char* sql = "INSERT INTO users (username, password, role, team) VALUES (?, ?, 'developer', ?);";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, hashed.c_str(),   -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, team.c_str(),     -1, SQLITE_TRANSIENT);
+        int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        // SQLITE_CONSTRAINT significa que el username ya existe (UNIQUE)
+        if (rc == SQLITE_CONSTRAINT) {
+            res.status = 409;
+            res.set_content("{\"error\":\"Username already exists\"}", "application/json");
+            return;
+        }
+
+        int id = (int)sqlite3_last_insert_rowid(db);
+        cout << "Developer created: " << username << " (team: " << team << ")\n";
+        res.set_content(
+            "{\"id\":" + to_string(id) + ","
+            "\"username\":\"" + username + "\","
+            "\"role\":\"developer\","
+            "\"team\":\"" + team + "\"}",
+            "application/json"
+        );
+    });
+
+    // GET /users — manager lista todos los developers
+    server.Get("/users", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        string payload = authenticate(req, res);
+        if (payload.empty()) return;
+
+        if (getJWTField(payload, "role") != "manager") {
+            res.status = 403;
+            res.set_content("{\"error\":\"Forbidden\"}", "application/json");
+            return;
+        }
+
+        sqlite3_stmt* stmt;
+        const char* sql = "SELECT id, username, role, COALESCE(team,'') FROM users WHERE role='developer' ORDER BY id ASC;";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+
+        string json = "[";
+        bool first = true;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            if (!first) json += ",";
+            first = false;
+            int id          = sqlite3_column_int(stmt, 0);
+            string username = (const char*)sqlite3_column_text(stmt, 1);
+            string role     = (const char*)sqlite3_column_text(stmt, 2);
+            string team     = (const char*)sqlite3_column_text(stmt, 3);
+            json += "{\"id\":" + to_string(id) + ","
+                    "\"username\":\"" + username + "\","
+                    "\"role\":\"" + role + "\","
+                    "\"team\":\"" + team + "\"}";
+        }
+        json += "]";
+        sqlite3_finalize(stmt);
+
+        res.set_content(json, "application/json");
+    });
+
+    // PUT /users/:id/team — manager cambia el equipo de un developer
+    // Recibe: { "team": "..." }
+    server.Put("/users/(\\d+)/team", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        string payload = authenticate(req, res);
+        if (payload.empty()) return;
+
+        if (getJWTField(payload, "role") != "manager") {
+            res.status = 403;
+            res.set_content("{\"error\":\"Forbidden\"}", "application/json");
+            return;
+        }
+
+        int id      = stoi(req.matches[1]);
+        string team = extractField(req.body, "team");
+
+        sqlite3_stmt* stmt;
+        const char* sql = "UPDATE users SET team=? WHERE id=? AND role='developer';";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, team.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (sqlite3_changes(db) == 0) {
+            res.status = 404;
+            res.set_content("{\"error\":\"Developer not found\"}", "application/json");
+            return;
+        }
+
+        cout << "Developer #" << id << " assigned to team: " << team << "\n";
+        res.set_content(
+            "{\"id\":" + to_string(id) + ","
+            "\"team\":\"" + team + "\"}",
+            "application/json"
+        );
+    });
+
     cout << "Server running on port 8080\n";
     server.listen("0.0.0.0", 8080);
     return 0;
