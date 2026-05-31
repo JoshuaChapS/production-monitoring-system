@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { AuthUser } from './types'
 
+import { API_URL } from './config'
+
 interface LoginPageProps {
   onLogin: (user: AuthUser) => void
 }
@@ -19,7 +21,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(true)
     setError('')
 
-    fetch('http://localhost:8080/login', {
+    fetch(`${API_URL}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
