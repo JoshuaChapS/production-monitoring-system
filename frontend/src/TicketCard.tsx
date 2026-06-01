@@ -1,9 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Ticket } from './types'
 import { TEAMS } from './TeamPanel'
-
 import { API_URL } from './config'
-
 
 interface TicketCardProps extends Ticket {
   token: string
@@ -12,24 +10,34 @@ interface TicketCardProps extends Ticket {
   onAssigned: () => void
 }
 
-function TicketCard({ id, timestamp, priority, error_rate, status,
-                      resolution_note, team, resolved_by,
-                      token, role, onResolve, onAssigned }: TicketCardProps) {
-  const [showModal, setShowModal]       = useState(false)
-  const [showAssign, setShowAssign]     = useState(false)
-  const [note, setNote]                 = useState('')
+function TicketCard({
+  id, timestamp, priority, error_rate, status,
+  resolution_note, team, resolved_by,
+  token, role, onResolve, onAssigned,
+}: TicketCardProps) {
+  const [showResolve, setShowResolve] = useState(false)
+  const [showAssign, setShowAssign]   = useState(false)
+  const [note, setNote]               = useState('')
   const [selectedTeam, setSelectedTeam] = useState(TEAMS[0])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setShowResolve(false); setShowAssign(false) }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
 
   const handleResolve = () => {
     fetch(`${API_URL}/tickets/${id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ resolution_note: note })
+      body: JSON.stringify({ resolution_note: note }),
     }).then(() => {
-      setShowModal(false)
+      setShowResolve(false)
       setNote('')
       onResolve()
     })
@@ -40,56 +48,80 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ team: selectedTeam })
+      body: JSON.stringify({ team: selectedTeam }),
     }).then(() => {
       setShowAssign(false)
       onAssigned()
     })
   }
 
+  const isResolved = status === 'resolved'
+
+  const fieldClass =
+    'w-full bg-field text-ink rounded border border-rim px-3 py-2 text-sm ' +
+    'focus:outline-none focus:border-azure transition-colors placeholder:text-faint'
+
   return (
-    <div className="bg-gray-800 rounded-lg p-4 mb-4 border border-gray-700">
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-bold text-white">INC-00{id}</h2>
-        <span className={`px-2 py-1 rounded text-sm font-bold ${
-          priority === 'P1' ? 'bg-red-600' : 'bg-yellow-600'
-        }`}>
-          {priority}
+    <div className={`bg-panel rounded px-4 py-3 ${isResolved ? 'opacity-60' : ''}`}>
+
+      {/* Top row: ID, priority, team, timestamp */}
+      <div className="flex justify-between items-start gap-4">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-xs font-semibold text-ink shrink-0">
+            INC-{String(id).padStart(3, '0')}
+          </span>
+          <span className={`text-xs font-medium px-1.5 py-0.5 rounded-sm shrink-0 ${
+            priority === 'P1'
+              ? 'bg-alert-tint text-alert'
+              : 'bg-caution-tint text-caution'
+          }`}>
+            {priority}
+          </span>
+          {team && (
+            <span className="text-faint text-xs truncate">{team}</span>
+          )}
+        </div>
+        <span className="font-mono text-xs text-faint shrink-0 mt-px">
+          {timestamp}
         </span>
       </div>
 
-      <p className="text-gray-400 text-sm mt-1">{timestamp}</p>
-      <p className="text-white mt-2">Error rate: {error_rate.toFixed(2)}%</p>
-      <p className="text-gray-300">Status: {status}</p>
+      {/* Data row */}
+      <div className="flex items-center gap-4 mt-1.5">
+        <span className="font-mono text-xs text-dim">
+          {error_rate.toFixed(2)}% errors
+        </span>
+        <span className={`text-xs ${isResolved ? 'text-ok' : 'text-faint'}`}>
+          {status}
+        </span>
+      </div>
 
-      {team && (
-        <p className="text-blue-400 text-sm mt-1">Team: {team}</p>
+      {/* Resolution info */}
+      {isResolved && (resolved_by || resolution_note) && (
+        <p className="text-faint text-xs mt-1.5 leading-relaxed">
+          {resolved_by && <span>Resolved by {resolved_by}</span>}
+          {resolution_note && (
+            <span className="italic"> — {resolution_note}</span>
+          )}
+        </p>
       )}
 
-      {status === 'resolved' && resolved_by && (
-        <p className="text-gray-400 text-sm mt-1">Resolved by: {resolved_by}</p>
-      )}
-
-      {status === 'resolved' && resolution_note && (
-        <p className="text-gray-400 text-sm mt-1 italic">Note: {resolution_note}</p>
-      )}
-
-      {/* Botones — solo en tickets open */}
-      {status === 'open' && (
+      {/* Actions */}
+      {!isResolved && (
         <div className="flex gap-2 mt-3">
           <button
-            className="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded text-sm"
-            onClick={() => setShowModal(true)}
+            className="text-xs font-medium px-3 py-1.5 rounded bg-ok-tint text-ok
+              hover:opacity-80 transition-opacity"
+            onClick={() => setShowResolve(true)}
           >
             Resolve
           </button>
-
-          {/* Assign solo visible para managers */}
           {role === 'manager' && (
             <button
-              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm"
+              className="text-xs font-medium px-3 py-1.5 rounded bg-field text-dim
+                hover:text-ink transition-colors"
               onClick={() => setShowAssign(true)}
             >
               {team ? 'Reassign' : 'Assign'}
@@ -98,59 +130,79 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
         </div>
       )}
 
-      {/* Modal resolver */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-600">
-            <h3 className="text-white font-bold text-lg mb-2">Resolve INC-00{id}</h3>
-            <p className="text-gray-400 text-sm mb-4">Describe what caused the issue and how it was fixed.</p>
+      {/* Resolve modal */}
+      {showResolve && (
+        <div
+          className="fixed inset-0 bg-bg/80 backdrop-blur-sm flex items-center justify-center z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Resolve INC-${String(id).padStart(3, '0')}`}
+        >
+          <div className="bg-panel rounded-md border border-rim p-6 w-full max-w-md mx-4">
+            <h3 className="text-ink text-sm font-semibold mb-1">
+              Resolve INC-{String(id).padStart(3, '0')}
+            </h3>
+            <p className="text-dim text-xs mb-4">
+              Describe the cause and how it was fixed.
+            </p>
             <textarea
-              className="w-full bg-gray-700 text-white rounded p-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+              className={`${fieldClass} resize-none`}
               rows={4}
-              placeholder="e.g. DB connection pool exhausted. Restarted service and increased pool size."
+              placeholder="DB connection pool exhausted. Restarted service and increased pool size."
               value={note}
               onChange={e => setNote(e.target.value)}
             />
-            <div className="flex justify-end gap-3 mt-4">
+            <div className="flex justify-end gap-2 mt-4">
               <button
-                className="px-4 py-2 rounded text-gray-400 hover:text-white"
-                onClick={() => { setShowModal(false); setNote('') }}
+                className="px-3 py-1.5 rounded text-faint hover:text-ink text-xs transition-colors"
+                onClick={() => { setShowResolve(false); setNote('') }}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded bg-green-600 hover:bg-green-500 text-white font-semibold"
+                className="px-3 py-1.5 rounded bg-ok-tint text-ok text-xs font-medium
+                  hover:opacity-80 transition-opacity"
                 onClick={handleResolve}
               >
-                Confirm Resolve
+                Confirm resolve
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal asignar equipo */}
+      {/* Assign modal */}
       {showAssign && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-sm border border-gray-600">
-            <h3 className="text-white font-bold text-lg mb-2">Assign INC-00{id}</h3>
-            <p className="text-gray-400 text-sm mb-4">Select the team responsible for this incident.</p>
+        <div
+          className="fixed inset-0 bg-bg/80 backdrop-blur-sm flex items-center justify-center z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Assign INC-${String(id).padStart(3, '0')}`}
+        >
+          <div className="bg-panel rounded-md border border-rim p-6 w-full max-w-sm mx-4">
+            <h3 className="text-ink text-sm font-semibold mb-1">
+              Assign INC-{String(id).padStart(3, '0')}
+            </h3>
+            <p className="text-dim text-xs mb-4">
+              Select the team responsible for this incident.
+            </p>
             <select
-              className="w-full bg-gray-700 text-white rounded px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`${fieldClass} mb-4`}
               value={selectedTeam}
               onChange={e => setSelectedTeam(e.target.value)}
             >
               {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded text-gray-400 hover:text-white"
+                className="px-3 py-1.5 rounded text-faint hover:text-ink text-xs transition-colors"
                 onClick={() => setShowAssign(false)}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                className="px-3 py-1.5 rounded bg-azure-tint text-azure text-xs font-medium
+                  hover:opacity-80 transition-opacity"
                 onClick={handleAssign}
               >
                 Confirm
@@ -159,6 +211,7 @@ function TicketCard({ id, timestamp, priority, error_rate, status,
           </div>
         </div>
       )}
+
     </div>
   )
 }
