@@ -18,7 +18,7 @@ function App() {
 
   const fetchTickets = (token: string) => {
     fetch(`${API_URL}/tickets`, {
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setTickets(data) })
@@ -42,107 +42,118 @@ function App() {
 
   const openTickets     = tickets.filter(t => t.status === 'open')
   const resolvedTickets = tickets.filter(t => t.status === 'resolved')
-
-  // Mostrar solo 4 resueltos a menos que showAll sea true
   const visibleResolved = showAll ? resolvedTickets : resolvedTickets.slice(0, 4)
   const visibleTickets  = activeTab === 'open' ? openTickets : visibleResolved
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-bg text-ink">
+      <div className="max-w-3xl mx-auto px-6 py-8">
 
         {/* Header */}
-        <div className="flex justify-between items-start mb-2">
+        <div className="flex justify-between items-start mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-white">Production Monitoring Dashboard</h1>
-            <p className="text-gray-400">CIB Technology</p>
+            <h1 className="text-sm font-semibold text-ink tracking-tight">
+              Production Monitoring
+            </h1>
+            <p className="text-dim text-xs mt-0.5">CIB Technology</p>
           </div>
-          <div className="text-right">
-            <p className="text-gray-400 text-sm">{auth.username}</p>
-            <span className={`text-xs font-bold px-2 py-1 rounded ${
-              auth.role === 'manager' ? 'bg-blue-700 text-blue-200' : 'bg-gray-700 text-gray-300'
+          <div className="flex items-center gap-3">
+            <span className="text-dim text-xs">{auth.username}</span>
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-sm ${
+              auth.role === 'manager'
+                ? 'bg-azure-tint text-azure'
+                : 'bg-field text-dim'
             }`}>
-              {auth.role.toUpperCase()}
+              {auth.role}
             </span>
             <button
               onClick={handleLogout}
-              className="ml-3 text-gray-500 hover:text-red-400 text-sm transition-colors"
+              className="text-faint hover:text-alert text-xs transition-colors"
             >
-              Logout
+              Sign out
             </button>
           </div>
         </div>
 
         {auth.role === 'developer' && auth.team && (
-          <p className="text-blue-400 text-sm mb-6">Team: {auth.team}</p>
+          <p className="text-dim text-xs -mt-4 mb-6">
+            <span className="text-faint">Team:</span> {auth.team}
+          </p>
         )}
 
-        {/* Panel de gestión — solo managers */}
+        {/* Team management — managers only */}
         {auth.role === 'manager' && (
-          <div className="mt-6">
+          <div className="mb-8">
             <TeamPanel token={auth.token} />
           </div>
         )}
 
-        {/* Counters */}
-        <div className="flex gap-4 mb-8 mt-6">
-          <div className="bg-red-900 rounded-lg p-4 flex-1 text-center">
-            <p className="text-3xl font-bold text-red-300">{openTickets.length}</p>
-            <p className="text-red-400">Active Incidents</p>
+        {/* Stats */}
+        <div className="flex gap-8 mb-8">
+          <div>
+            <p className="text-2xl font-semibold text-alert tabular-nums font-mono">
+              {openTickets.length}
+            </p>
+            <p className="text-dim text-xs mt-0.5">Active incidents</p>
           </div>
-          <div className="bg-green-900 rounded-lg p-4 flex-1 text-center">
-            <p className="text-3xl font-bold text-green-300">{resolvedTickets.length}</p>
-            <p className="text-green-400">Resolved Today</p>
+          <div>
+            <p className="text-2xl font-semibold text-ok tabular-nums font-mono">
+              {resolvedTickets.length}
+            </p>
+            <p className="text-dim text-xs mt-0.5">Resolved today</p>
           </div>
         </div>
 
-        {/* Pestañas */}
-        <div className="flex border-b border-gray-700 mb-6">
+        {/* Tabs */}
+        <div className="flex border-b border-rim mb-6">
           <button
             onClick={() => setActiveTab('open')}
-            className={`px-6 py-2 text-sm font-semibold border-b-2 transition-colors ${
+            className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
               activeTab === 'open'
-                ? 'border-red-400 text-red-400'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
+                ? 'border-alert text-alert'
+                : 'border-transparent text-faint hover:text-dim'
             }`}
           >
-            Active Incidents ({openTickets.length})
+            Active ({openTickets.length})
           </button>
           <button
             onClick={() => setActiveTab('resolved')}
-            className={`px-6 py-2 text-sm font-semibold border-b-2 transition-colors ${
+            className={`px-4 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
               activeTab === 'resolved'
-                ? 'border-green-400 text-green-400'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
+                ? 'border-ok text-ok'
+                : 'border-transparent text-faint hover:text-dim'
             }`}
           >
             Resolved ({resolvedTickets.length})
           </button>
         </div>
 
-        {/* Tickets */}
+        {/* Ticket list */}
         {visibleTickets.length === 0 ? (
-          <p className="text-gray-500 text-center py-12">No tickets here.</p>
+          <p className="text-faint text-xs text-center py-16">
+            {activeTab === 'open' ? 'No active incidents.' : 'No resolved tickets.'}
+          </p>
         ) : (
-          visibleTickets.map(ticket => (
-            <TicketCard
-              key={ticket.id}
-              {...ticket}
-              token={auth.token}
-              role={auth.role}
-              onResolve={() => fetchTickets(auth.token)}
-              onAssigned={() => fetchTickets(auth.token)}
-            />
-          ))
+          <div className="space-y-1.5">
+            {visibleTickets.map(ticket => (
+              <TicketCard
+                key={ticket.id}
+                {...ticket}
+                token={auth.token}
+                role={auth.role}
+                onResolve={() => fetchTickets(auth.token)}
+                onAssigned={() => fetchTickets(auth.token)}
+              />
+            ))}
+          </div>
         )}
 
-        {/* Mostrar más resueltos */}
         {activeTab === 'resolved' && resolvedTickets.length > 4 && (
           <button
             onClick={() => setShowAll(!showAll)}
-            className="w-full py-2 text-gray-500 hover:text-gray-300 text-sm transition-colors"
+            className="w-full py-3 text-faint hover:text-dim text-xs transition-colors mt-1"
           >
-            {showAll ? 'Show less' : `Show all ${resolvedTickets.length} resolved tickets`}
+            {showAll ? 'Show fewer' : `Show all ${resolvedTickets.length} resolved`}
           </button>
         )}
 

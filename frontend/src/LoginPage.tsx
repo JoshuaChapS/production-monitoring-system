@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { AuthUser } from './types'
-
 import { API_URL } from './config'
 
 interface LoginPageProps {
@@ -15,7 +14,7 @@ function LoginPage({ onLogin }: LoginPageProps) {
 
   const handleLogin = () => {
     if (!username || !password) {
-      setError('Please enter username and password')
+      setError('Enter your username and password')
       return
     }
     setLoading(true)
@@ -24,17 +23,16 @@ function LoginPage({ onLogin }: LoginPageProps) {
     fetch(`${API_URL}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password }),
     })
       .then(res => res.json())
       .then(data => {
         setLoading(false)
         if (data.token) {
-          // Guardar en localStorage para que sobreviva refreshes
           localStorage.setItem('auth', JSON.stringify(data))
           onLogin(data)
         } else {
-          setError('Invalid username or password')
+          setError('Invalid credentials')
         }
       })
       .catch(() => {
@@ -43,46 +41,61 @@ function LoginPage({ onLogin }: LoginPageProps) {
       })
   }
 
+  const fieldClass =
+    'w-full bg-field text-ink rounded border border-rim px-3 py-2 text-sm ' +
+    'placeholder:text-faint focus:outline-none focus:border-azure transition-colors'
+
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-      <div className="bg-gray-800 rounded-xl p-8 w-full max-w-sm border border-gray-700">
+    <div className="min-h-screen bg-bg flex items-center justify-center">
+      <div className="w-full max-w-xs px-6">
 
-        <h1 className="text-2xl font-bold text-white mb-1">Production Monitor</h1>
-        <p className="text-gray-400 text-sm mb-8">CIB Technology — JP Morgan</p>
-
-        <div className="mb-4">
-          <label className="text-gray-400 text-sm block mb-1">Username</label>
-          <input
-            type="text"
-            className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-          />
+        <div className="mb-8">
+          <h1 className="text-sm font-semibold text-ink">Production Monitor</h1>
+          <p className="text-dim text-xs mt-0.5">CIB Technology</p>
         </div>
 
-        <div className="mb-6">
-          <label className="text-gray-400 text-sm block mb-1">Password</label>
-          <input
-            type="password"
-            className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-          />
+        <div className="space-y-4">
+          <div>
+            <label className="text-dim text-xs font-medium block mb-1.5">
+              Username
+            </label>
+            <input
+              type="text"
+              className={fieldClass}
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              autoComplete="username"
+            />
+          </div>
+
+          <div>
+            <label className="text-dim text-xs font-medium block mb-1.5">
+              Password
+            </label>
+            <input
+              type="password"
+              className={fieldClass}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              autoComplete="current-password"
+            />
+          </div>
+
+          {error && (
+            <p className="text-alert text-xs">{error}</p>
+          )}
+
+          <button
+            className="w-full bg-azure-deep text-ink font-medium py-2 rounded text-sm
+              hover:opacity-90 transition-opacity disabled:opacity-40"
+            onClick={handleLogin}
+            disabled={loading}
+          >
+            {loading ? 'Signing in...' : 'Sign in'}
+          </button>
         </div>
-
-        {error && (
-          <p className="text-red-400 text-sm mb-4">{error}</p>
-        )}
-
-        <button
-          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 rounded transition-colors disabled:opacity-50"
-          onClick={handleLogin}
-          disabled={loading}
-        >
-          {loading ? 'Signing in...' : 'Sign In'}
-        </button>
 
       </div>
     </div>
