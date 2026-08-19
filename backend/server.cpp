@@ -253,36 +253,31 @@ void initDB() {
 // Insertar managers hardcodeados si no existen
 // Se llama una vez al arrancar — los managers no se crean desde el dashboard
 void seedManagers() {
-    string ADMIN_USER;
-    string ADMIN_PSWD_SECRET;
+    string adminUsername;
+    string adminPassword;
     const char* user = getenv("SEED_ADMIN_USER");
     if (!user) {
         cerr << "SEED_ADMIN_USER not set in environment\n";
         exit(1);
     }
-    ADMIN_USER = string(user);
+    adminUsername = string(user);
 
     const char* secret = getenv("SEED_ADMIN_PASSWORD");
     if (!secret) {
         cerr << "SEED_ADMIN_PASSWORD not set in environment\n";
         exit(1);
     }
-    ADMIN_PSWD_SECRET = string(secret);
+    adminPassword = string(secret);
     
-    vector<pair<string,string>> managers = {
-        {ADMIN_USER, ADMIN_PSWD_SECRET}
-    };
-
-    for (auto& [username, password] : managers) {
-        string hashed = sha256(password);
-        sqlite3_stmt* stmt;
-        const char* sql = "INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, 'manager');";
-        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-        sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, hashed.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-        sqlite3_finalize(stmt);
-    }
+    string hashed = sha256(adminPassword);
+    sqlite3_stmt* stmt;
+    const char* sql = "INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, 'manager');";
+    sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, adminUsername.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, hashed.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
     cout << "Managers seeded\n";
 }
 
