@@ -69,6 +69,10 @@ Testing/
 .cache/
 logs/
 .env
+.env.docker
 logger/trading_logger
 backend/server
 backend/tickets.db
+.claude/
+
+schema
