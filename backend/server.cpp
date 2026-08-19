@@ -11,6 +11,8 @@ using namespace std;
 
 sqlite3* db;
 string JWT_SECRET;
+string ADMIN_USER_SECRET;
+string ADMIN_PSWD_SECRET;
 
 // ─── Utilidades generales ─────────────────────────────────────────────────────
 
@@ -252,14 +254,26 @@ void initDB() {
 // Insertar managers hardcodeados si no existen
 // Se llama una vez al arrancar — los managers no se crean desde el dashboard
 void seedManagers() {
+    const char* secret = getenv("SEED_ADMIN_USER");
+    if (!secret) {
+        cerr << "SEED_ADMIN_USER not set in environment\n";
+        exit(1);
+    }
+    ADMIN_USER_SECRET = string(secret);
+
+    secret = getenv("SEED_ADMIN_PASSWORD");
+    if (!secret) {
+        cerr << "SEED_ADMIN_PASSWORD not set in environment\n";
+        exit(1);
+    }
+    ADMIN_PSWD_SECRET = string(secret);
+    
     vector<pair<string,string>> managers = {
-        {"joshua", "jpm2026"},
-        {"humberto", "jpm2026"}
+        {ADMIN_USER_SECRET, ADMIN_PSWD_SECRET}
     };
 
     for (auto& [username, password] : managers) {
         string hashed = sha256(password);
-        cout << "Seeding " << username << " with hash: " << hashed << "\n";
         sqlite3_stmt* stmt;
         const char* sql = "INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, 'manager');";
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
