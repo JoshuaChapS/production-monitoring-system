@@ -11,8 +11,7 @@ using namespace std;
 
 sqlite3* db;
 string JWT_SECRET;
-string ADMIN_USER_SECRET;
-string ADMIN_PSWD_SECRET;
+
 
 // ─── Utilidades generales ─────────────────────────────────────────────────────
 
@@ -254,14 +253,16 @@ void initDB() {
 // Insertar managers hardcodeados si no existen
 // Se llama una vez al arrancar — los managers no se crean desde el dashboard
 void seedManagers() {
-    const char* secret = getenv("SEED_ADMIN_USER");
-    if (!secret) {
+    string ADMIN_USER;
+    string ADMIN_PSWD_SECRET;
+    const char* user = getenv("SEED_ADMIN_USER");
+    if (!user) {
         cerr << "SEED_ADMIN_USER not set in environment\n";
         exit(1);
     }
-    ADMIN_USER_SECRET = string(secret);
+    ADMIN_USER = string(user);
 
-    secret = getenv("SEED_ADMIN_PASSWORD");
+    const char* secret = getenv("SEED_ADMIN_PASSWORD");
     if (!secret) {
         cerr << "SEED_ADMIN_PASSWORD not set in environment\n";
         exit(1);
@@ -269,7 +270,7 @@ void seedManagers() {
     ADMIN_PSWD_SECRET = string(secret);
     
     vector<pair<string,string>> managers = {
-        {ADMIN_USER_SECRET, ADMIN_PSWD_SECRET}
+        {ADMIN_USER, ADMIN_PSWD_SECRET}
     };
 
     for (auto& [username, password] : managers) {
