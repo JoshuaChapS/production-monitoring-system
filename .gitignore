@@ -73,3 +73,6 @@ logs/
 logger/trading_logger
 backend/server
 backend/tickets.db
+.claude/
+
+schema
