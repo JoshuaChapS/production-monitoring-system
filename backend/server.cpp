@@ -2,6 +2,8 @@
 #include <string>
 #include <sstream>
 #include <ctime>
+#include <algorithm>
+#include <cctype>
 #include <sqlite3.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
@@ -43,12 +45,23 @@ string extractField(const string& body, const string& key) {
 }
 
 string extractErrorRate(const string& body) {
-    string key = "\"error_rate\": \"";
-    size_t start = body.find(key);
-    if (start == string::npos) return "0.0";
+    string b = body;
+    b.erase(remove_if(b.begin(), b.end(),
+                      [](unsigned char c){ return isspace(c); }), b.end());
+
+    string key = "\"error_rate\":";
+    size_t start = b.find(key);
+    if (start == string::npos) return "";      // sin campo -> que truene arriba
     start += key.length();
-    size_t end = body.find("\"", start);
-    return body.substr(start, end - start);
+    if (start >= b.size()) return "";          // llave al final del body
+
+    if (b[start] == '"') {                     // forma string: "73.5"
+        size_t end = b.find('"', start + 1);
+        if (end == string::npos) return "";    // comilla sin cerrar
+        return b.substr(start + 1, end - start - 1);
+    }
+    size_t end = b.find_first_of(",}", start); // forma número: 73.5
+    return b.substr(start, end - start);
 }
 
 // ─── Base64 (necesario para JWT) ─────────────────────────────────────────────
@@ -376,9 +389,24 @@ int main() {
     // POST /alert — Splunk nos avisa (no requiere token — viene de Splunk)
     server.Post("/alert", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
-
+        
         string error_rate_str = extractErrorRate(req.body);
-        double error_rate = stod(error_rate_str);
+        double error_rate = 0;
+        try{
+             error_rate = stod(error_rate_str);
+        }
+        catch (const std::exception& e){
+            res.status = 400;
+            res.set_content("{\"error\": \"Invalid error rate: must be a number\"}", "application/json");
+            return;
+        }
+
+        if (error_rate < 0 || error_rate > 100) {
+        res.status = 400;
+        res.set_content("{\"error\": \"error_rate out of range\"}", "application/json");
+        return;
+}
+        
         string priority = (error_rate > 50) ? "P1" : "P2";
         string timestamp = getTimestamp();
 
