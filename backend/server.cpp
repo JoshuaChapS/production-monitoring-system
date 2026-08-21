@@ -5,6 +5,7 @@
 #include <sqlite3.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
+#include <openssl/crypto.h>
 #include "httplib.h"
 
 using namespace std;
@@ -164,9 +165,15 @@ string verifyJWT(const string& token) {
 
     // Recalcular la firma esperada con nuestra secret key
     string expectedSig = base64Encode(hmacSha256(JWT_SECRET, headerPayload));
+    size_t signatureLen = signature.size();
+    const char* signaturePointer = signature.data();
+    const char* expectedPointer = expectedSig.data();
+    
+    if (signatureLen != expectedSig.size()) return "";
 
     // Si la firma no coincide, el token fue modificado o es falso
-    if (signature != expectedSig) return "";
+    // Se necesita este método para que toda comparación tarde tiempos casi iguales y debilitar ataques de temporización
+    if (CRYPTO_memcmp(signaturePointer, expectedPointer, signatureLen)) return "";
 
     // Decodificar y regresar el payload
     string payload = token.substr(dot1 + 1, dot2 - dot1 - 1);
