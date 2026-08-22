@@ -15,7 +15,7 @@ using namespace std;
 
 sqlite3* db;
 string JWT_SECRET;
-
+string HASH_DUMMY;
 
 // ─── Utilidades generales ─────────────────────────────────────────────────────
 
@@ -356,7 +356,14 @@ int main() {
         exit(1);
     }
     JWT_SECRET = string(secret);
-
+    try{
+        HASH_DUMMY = hashPassword("00000000");
+    }
+    catch(const std::exception&){
+        cerr << "Failed to generate dummy password\n";
+        exit(1);
+    }
+    
     initDB();
     seedManagers();
 
@@ -393,7 +400,9 @@ int main() {
         if (sqlite3_step(stmt) != SQLITE_ROW) {
             sqlite3_finalize(stmt);
             res.status = 401;
+           [[maybe_unused]] int ignored = crypto_pwhash_str_verify(HASH_DUMMY.c_str(), password.c_str(), password.size());
             res.set_content("{\"error\":\"Invalid credentials\"}", "application/json");
+            
             return;
         }
 
