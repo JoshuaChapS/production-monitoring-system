@@ -40,18 +40,19 @@ int main() {
     srand(time(nullptr));
 
     bool incident = false;
+    // Start close to the trigger so the first incident shows ~10 s after launch, not ~100 s
     int counter = 180;
 
     while (true) {
         counter++;
-        if (counter == 200) incident = true;   // incidente a los 100 seg
-        if (counter == 240) {                  // dura 20 seg
+        if (counter == 200) incident = true;   // incident starts at counter 200 (100 s into each cycle)
+        if (counter == 240) {                  // lasts 20 s (counter 200 -> 240), then reset
             incident = false;
             counter = 0;
         }
         string level;
         if (incident) {
-            // Durante el incidente 80% errores
+            // During an incident, 80% of events are errors
             level = (rand() % 10 < 8) ? "ERROR" : "WARNING";
         } else {
             level = levels[rand() % levels.size()];
