@@ -76,3 +76,5 @@ backend/tickets.db
 .claude/
 
 schema
+temp
+temp.cpp
