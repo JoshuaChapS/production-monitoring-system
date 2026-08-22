@@ -14,7 +14,7 @@ C++ Log Generator → trading_app.log → Splunk (SPL alert) → Webhook → C++
 |---|---|
 | Log Generator | C++ |
 | Monitoring & Alerting | Splunk Free |
-| Backend API | C++ + httplib + OpenSSL |
+| Backend API | C++ + httplib + OpenSSL + libsodium |
 | Database | SQLite |
 | Authentication | JWT (HMAC-SHA256) |
 | Frontend | React + TypeScript + Tailwind CSS v4 |
@@ -37,7 +37,7 @@ production-monitoring-system/
 
 ## How it Works
 
-1. The C++ logger simulates a trading application generating logs with realistic incident patterns — every ~2.5 minutes an incident spike occurs where 80% of transactions fail.
+1. The C++ logger simulates a trading application generating logs with realistic incident patterns — every ~2 minutes an incident spike occurs where 80% of transactions fail.
 2. Splunk monitors the log file in real time and detects when the error rate exceeds 25%.
 3. Splunk fires a webhook to the C++ backend, which creates an incident ticket in SQLite.
 4. The React dashboard polls the backend every 5 seconds and displays active and resolved tickets.
@@ -60,6 +60,7 @@ Managers are seeded at startup. Developers are created from the dashboard.
 - g++ with C++17 support
 - libsqlite3-dev (`sudo apt-get install -y libsqlite3-dev`)
 - libssl-dev (`sudo apt-get install -y libssl-dev`)
+- libsodium-dev (`sudo apt-get install -y libsodium-dev`)
 - Splunk Free
 - Node.js 20+ (via nvm)
 - pnpm
@@ -76,7 +77,11 @@ cp .env.example .env
 LOG_PATH=/mnt/c/Users/youruser/path/to/logs/trading_app.log
 LOG_INTERVAL_MS=500
 JWT_SECRET=your_secret_key_here
+SEED_ADMIN_USER=your_admin_user
+SEED_ADMIN_PASSWORD=your_admin_password
 ~~~
+
+The backend refuses to start unless `JWT_SECRET`, `SEED_ADMIN_USER`, and `SEED_ADMIN_PASSWORD` are set.
 
 ## Running the Project
 
@@ -124,7 +129,6 @@ Dashboard: `http://localhost:5173`
 
 ## Default Credentials
 
-| Username | Password | Role |
-|---|---|---|
-| joshua | jpm2026 | Manager |
-| humberto | jpm2026 | Manager |
+There are no hardcoded credentials. A single manager account is seeded at startup from
+`SEED_ADMIN_USER` and `SEED_ADMIN_PASSWORD` in `.env`. Set those before the first run and
+log in with those values. Developer accounts are then created from the dashboard.

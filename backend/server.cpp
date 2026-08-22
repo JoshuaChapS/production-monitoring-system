@@ -17,7 +17,7 @@ sqlite3* db;
 string JWT_SECRET;
 string HASH_DUMMY;
 
-// ─── Utilidades generales ─────────────────────────────────────────────────────
+// ─── General utilities ─────────────────────────────────────────────────────
 
 string getTimestamp() {
     time_t t = time(nullptr);
@@ -26,14 +26,14 @@ string getTimestamp() {
     return string(buf);
 }
 
-// Extrae el valor de una clave en un JSON simple
-// Busca "key":"valor" o "key":valor (números)
+// Extracts the value of a key from a simple JSON body.
+// Matches "key":"value" or "key":value (numbers)
 string extractField(const string& body, const string& key) {
     string search = "\"" + key + "\":";
     size_t pos = body.find(search);
     if (pos == string::npos) return "";
     pos += search.length();
-    // saltar espacios
+    // skip whitespace
     while (pos < body.size() && body[pos] == ' ') pos++;
     if (body[pos] == '"') {
         size_t start = pos + 1;
@@ -52,22 +52,22 @@ string extractErrorRate(const string& body) {
 
     string key = "\"error_rate\":";
     size_t start = b.find(key);
-    if (start == string::npos) return "";      // sin campo -> que truene arriba
+    if (start == string::npos) return "";      // no field -> return "" so the caller's stod() throws (400)
     start += key.length();
-    if (start >= b.size()) return "";          // llave al final del body
+    if (start >= b.size()) return "";          // key sits at the very end of the body
 
-    if (b[start] == '"') {                     // forma string: "73.5"
+    if (b[start] == '"') {                     // string form: "73.5"
         size_t end = b.find('"', start + 1);
-        if (end == string::npos) return "";    // comilla sin cerrar
+        if (end == string::npos) return "";    // unclosed quote
         return b.substr(start + 1, end - start - 1);
     }
-    size_t end = b.find_first_of(",}", start); // forma número: 73.5
+    size_t end = b.find_first_of(",}", start); // number form: 73.5
     return b.substr(start, end - start);
 }
 
-// ─── Base64 (necesario para JWT) ─────────────────────────────────────────────
-// JWT usa Base64URL — variante que reemplaza + por - y / por _
-// para que el token sea seguro en URLs y headers HTTP
+// ─── Base64 (needed for JWT) ─────────────────────────────────────────────
+// JWT uses Base64URL — a variant that swaps + for - and / for _
+// so the token is safe inside URLs and HTTP headers
 
 string base64Encode(const string& input) {
     const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -83,12 +83,12 @@ string base64Encode(const string& input) {
     }
     if (valb > -6) result.push_back(chars[((val << 8) >> (valb + 8)) & 0x3F]);
     while (result.size() % 4) result.push_back('=');
-    // Convertir a Base64URL
+    // Convert to Base64URL
     for (char& c : result) {
         if (c == '+') c = '-';
         if (c == '/') c = '_';
     }
-    // Quitar padding = (Base64URL no lo usa)
+    // Strip = padding (Base64URL does not use it)
     while (!result.empty() && result.back() == '=') result.pop_back();
     return result;
 }
@@ -96,7 +96,7 @@ string base64Encode(const string& input) {
 string base64Decode(const string& input) {
     const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     string in = input;
-    // Revertir Base64URL a Base64 normal
+    // Revert Base64URL back to standard Base64
     for (char& c : in) {
         if (c == '-') c = '+';
         if (c == '_') c = '/';
@@ -118,22 +118,22 @@ string base64Decode(const string& input) {
     return result;
 }
 
-// ─── Criptografía ─────────────────────────────────────────────────────────────
+// ─── Cryptography ─────────────────────────────────────────────────────────────
 
-// SHA-256: convierte un string a su hash hexadecimal
-// Usado para guardar passwords — nunca guardamos el password en texto plano
+// SHA-256: returns the hexadecimal hash of a string.
+// No longer used for password storage — that moved to Argon2id (see hashPassword).
 string sha256(const string& input) {
-    unsigned char hash[SHA256_DIGEST_LENGTH]; // array de 32 bytes
+    unsigned char hash[SHA256_DIGEST_LENGTH]; // 32-byte array
     SHA256((const unsigned char*)input.c_str(), input.size(), hash);
-    // Convertir bytes a string hexadecimal (ej: "a3f2...")
+    // Convert the bytes to a hexadecimal string (e.g. "a3f2...")
     ostringstream oss;
     for (int i = 0; i < SHA256_DIGEST_LENGTH; i++)
         oss << hex << setw(2) << setfill('0') << (int)hash[i];
     return oss.str();
 }
 
-// HMAC-SHA256: firma un mensaje con una clave secreta
-// Usado para firmar el JWT — verifica que el token no fue modificado
+// HMAC-SHA256: signs a message with a secret key.
+// Used to sign the JWT — proves the token was not tampered with
 string hmacSha256(const string& key, const string& data) {
     unsigned char* digest = HMAC(
         EVP_sha256(),
@@ -141,12 +141,12 @@ string hmacSha256(const string& key, const string& data) {
         (const unsigned char*)data.c_str(), data.size(),
         nullptr, nullptr
     );
-    // Convertir los bytes del digest a string para poder meterlo en Base64
+    // Turn the digest bytes into a string so it can be fed into Base64
     return string((char*)digest, 32);
 }
 
-// Argon2id — reemplaza a sha256() para passwords.
-// La sal es aleatoria y viaja dentro del string devuelto.
+// Argon2id — replaces sha256() for passwords.
+// The salt is random and travels inside the returned string.
 string hashPassword(const string& password) {
     char buf[crypto_pwhash_STRBYTES];
 
@@ -161,30 +161,30 @@ string hashPassword(const string& password) {
 
 
 // ─── JWT ─────────────────────────────────────────────────────────────────────
-// Estructura de un JWT: header.payload.signature
-// Cada parte es Base64URL encoded
-// Solo la firma usa la secret key — header y payload son solo Base64, no encriptados
+// Structure of a JWT: header.payload.signature
+// Each part is Base64URL encoded
+// Only the signature uses the secret key — header and payload are just Base64, not encrypted
 
 string createJWT(const string& username, const string& role, const string& team) {
-    // Header fijo — indica el algoritmo
+    // Fixed header — declares the algorithm
     string header = base64Encode("{\"alg\":\"HS256\",\"typ\":\"JWT\"}");
 
-    // Payload — datos del usuario (no sensibles, son visibles al decodificar)
+    // Payload — user data (non-sensitive; visible once decoded)
     string payloadJson = "{\"username\":\"" + username + "\","
                          "\"role\":\"" + role + "\","
                          "\"team\":\"" + team + "\"}";
     string payload = base64Encode(payloadJson);
 
-    // Firma — HMAC-SHA256 del header.payload con la secret key
+    // Signature — HMAC-SHA256 of header.payload using the secret key
     string signature = base64Encode(hmacSha256(JWT_SECRET, header + "." + payload));
 
     return header + "." + payload + "." + signature;
 }
 
-// Verifica la firma del token y extrae el payload
-// Regresa el payload decodificado, o "" si el token es inválido
+// Verifies the token signature and extracts the payload.
+// Returns the decoded payload, or "" if the token is invalid
 string verifyJWT(const string& token) {
-    // El token tiene formato: header.payload.signature
+    // The token has the form: header.payload.signature
     size_t dot1 = token.find('.');
     size_t dot2 = token.find('.', dot1 + 1);
     if (dot1 == string::npos || dot2 == string::npos) return "";
@@ -192,7 +192,7 @@ string verifyJWT(const string& token) {
     string headerPayload = token.substr(0, dot2);
     string signature     = token.substr(dot2 + 1);
 
-    // Recalcular la firma esperada con nuestra secret key
+    // Recompute the expected signature with our secret key
     string expectedSig = base64Encode(hmacSha256(JWT_SECRET, headerPayload));
     size_t signatureLen = signature.size();
     const char* signaturePointer = signature.data();
@@ -200,44 +200,44 @@ string verifyJWT(const string& token) {
     
     if (signatureLen != expectedSig.size()) return "";
 
-    // Si la firma no coincide, el token fue modificado o es falso
-    // Se necesita este método para que toda comparación tarde tiempos casi iguales y debilitar ataques de temporización
+    // If the signature does not match, the token was tampered with or forged.
+    // CRYPTO_memcmp compares in near-constant time so the check cannot be attacked by timing
     if (CRYPTO_memcmp(signaturePointer, expectedPointer, signatureLen)) return "";
 
-    // Decodificar y regresar el payload
+    // Decode and return the payload
     string payload = token.substr(dot1 + 1, dot2 - dot1 - 1);
     return base64Decode(payload);
 }
 
-// Extrae un campo del payload ya decodificado
-// Ejemplo: getJWTField(payload, "role") → "manager"
+// Extracts a field from the already-decoded payload.
+// Example: getJWTField(payload, "role") → "manager"
 string getJWTField(const string& payload, const string& field) {
     return extractField(payload, field);
 }
 
-// ─── Middleware de autenticación ──────────────────────────────────────────────
-// Extrae el token del header Authorization: Bearer <token>
-// Verifica la firma y regresa el payload, o "" si no es válido
+// ─── Authentication middleware ──────────────────────────────────────────────
+// Extracts the token from the Authorization: Bearer <token> header.
+// Verifies the signature and returns the payload, or "" if invalid
 
 string authenticate(const httplib::Request& req, httplib::Response& res) {
-    // El header se manda como: Authorization: Bearer eyJhbG...
+    // The header arrives as: Authorization: Bearer eyJhbG...
     string authHeader = req.get_header_value("Authorization");
     if (authHeader.empty() || authHeader.substr(0, 7) != "Bearer ") {
         res.status = 401;
         res.set_content("{\"error\":\"Missing token\"}", "application/json");
         return "";
     }
-    string token = authHeader.substr(7); // quitar "Bearer "
+    string token = authHeader.substr(7); // drop "Bearer "
     string payload = verifyJWT(token);
     if (payload.empty()) {
         res.status = 401;
         res.set_content("{\"error\":\"Invalid token\"}", "application/json");
         return "";
     }
-    return payload; // el caller extrae role/username/team del payload
+    return payload; // the caller pulls role/username/team out of the payload
 }
 
-// ─── Base de datos ────────────────────────────────────────────────────────────
+// ─── Database ────────────────────────────────────────────────────────────
 
 void initDB() {
     int rc = sqlite3_open("tickets.db", &db);
@@ -246,8 +246,8 @@ void initDB() {
         exit(1);
     }
 
-    // Tabla tickets — agregamos team, resolved_by
-    // Las columnas nuevas usan ALTER TABLE si la tabla ya existe (migración)
+    // tickets table — team and resolved_by were added later
+    // The new columns are added via ALTER TABLE when the table already exists (migration)
     const char* ticketsSql = R"(
         CREATE TABLE IF NOT EXISTS tickets (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,8 +261,8 @@ void initDB() {
         );
     )";
 
-    // Tabla users — solo developers viven aquí
-    // Los managers están hardcodeados en el código
+    // users table — holds developers and the seeded manager account(s)
+    // The manager is inserted at startup by seedManagers() from environment variables
     const char* usersSql = R"(
         CREATE TABLE IF NOT EXISTS users (
             id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,8 +277,8 @@ void initDB() {
     sqlite3_exec(db, ticketsSql, nullptr, nullptr, &errMsg);
     sqlite3_exec(db, usersSql,   nullptr, nullptr, &errMsg);
 
-    // Migración: agregar columnas nuevas a tickets si no existen
-    // SQLite no tiene IF NOT EXISTS en ALTER TABLE, así que ignoramos el error
+    // Migration: add the new tickets columns if they do not exist yet.
+    // SQLite has no IF NOT EXISTS on ALTER TABLE, so we ignore the error
     sqlite3_exec(db, "ALTER TABLE tickets ADD COLUMN team TEXT;",        nullptr, nullptr, nullptr);
     sqlite3_exec(db, "ALTER TABLE tickets ADD COLUMN resolved_by TEXT;", nullptr, nullptr, nullptr);
     sqlite3_exec(db, "ALTER TABLE tickets ADD COLUMN resolution_note TEXT;", nullptr, nullptr, nullptr);
@@ -286,8 +286,8 @@ void initDB() {
     cout << "Database ready: tickets.db\n";
 }
 
-// Insertar managers hardcodeados si no existen
-// Se llama una vez al arrancar — los managers no se crean desde el dashboard
+// Insert the manager account from environment variables if it does not exist yet.
+// Called once at startup — managers are not created from the dashboard
 void seedManagers() {
     string adminUsername;
     string adminPassword;
@@ -345,7 +345,7 @@ string ticketToJson(int id, const string& timestamp, const string& priority,
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 int main() {
-    // Leer JWT_SECRET del entorno
+    // Read JWT_SECRET from the environment
     const char* secret = getenv("JWT_SECRET");
     if (!secret) {
         cerr << "JWT_SECRET not set in environment\n";
@@ -376,9 +376,9 @@ int main() {
         res.status = 204;
     });
 
-    // POST /login — cualquiera puede llamar esto, no requiere token
-    // Recibe: { "username": "...", "password": "..." }
-    // Regresa: { "token": "...", "role": "...", "team": "..." }
+    // POST /login — anyone may call this, no token required
+    // Receives: { "username": "...", "password": "..." }
+    // Returns:  { "token": "...", "role": "...", "team": "..." }
     server.Post("/login", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
 
@@ -396,10 +396,12 @@ int main() {
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
         sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_STATIC);
 
-        // Usuario no encontrado
+        // User not found
         if (sqlite3_step(stmt) != SQLITE_ROW) {
             sqlite3_finalize(stmt);
             res.status = 401;
+            // Verify against a dummy hash anyway, so a missing user costs the same
+            // Argon2id time as a wrong password — otherwise the timing leaks which usernames exist
            [[maybe_unused]] int ignored = crypto_pwhash_str_verify(HASH_DUMMY.c_str(), password.c_str(), password.size());
             res.set_content("{\"error\":\"Invalid credentials\"}", "application/json");
             
@@ -412,7 +414,7 @@ int main() {
         string hashedPwd = (const char*)sqlite3_column_text(stmt, 2);
         sqlite3_finalize(stmt);
 
-        // Password incorrecto — mismo status y mismo mensaje que arriba
+        // Wrong password — same status and message as the not-found case above
         if (crypto_pwhash_str_verify(hashedPwd.c_str(),
                                     password.c_str(), password.size()) != 0) {
             res.status = 401;
@@ -430,7 +432,7 @@ int main() {
         );
     });
 
-    // POST /alert — Splunk nos avisa (no requiere token — viene de Splunk)
+    // POST /alert — Splunk notifies us (no token required — it comes from Splunk)
     server.Post("/alert", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         
@@ -469,13 +471,13 @@ int main() {
         res.set_content(ticketToJson(id, timestamp, priority, error_rate, "open", "", "", ""), "application/json");
     });
 
-    // GET /tickets — requiere token
-    // Manager ve todos, developer ve solo los de su equipo
+    // GET /tickets — requires token
+    // Manager sees all; developer sees only their team's
     server.Get("/tickets", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
 
         string payload = authenticate(req, res);
-        if (payload.empty()) return; // authenticate ya mandó el 401
+        if (payload.empty()) return; // authenticate already sent the 401
 
         string role = getJWTField(payload, "role");
         string team = getJWTField(payload, "team");
@@ -484,13 +486,13 @@ int main() {
         string sql;
 
         if (role == "manager") {
-            // Manager ve todos los tickets
+            // Manager sees every ticket
             sql = "SELECT id, timestamp, priority, error_rate, status, "
                   "COALESCE(resolution_note,''), COALESCE(team,''), COALESCE(resolved_by,'') "
                   "FROM tickets ORDER BY id DESC;";
             sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
         } else {
-            // Developer ve solo los tickets de su equipo
+            // Developer sees only their team's tickets
             sql = "SELECT id, timestamp, priority, error_rate, status, "
                   "COALESCE(resolution_note,''), COALESCE(team,''), COALESCE(resolved_by,'') "
                   "FROM tickets WHERE team=? ORDER BY id DESC;";
@@ -519,8 +521,8 @@ int main() {
         res.set_content(json, "application/json");
     });
 
-    // PUT /tickets/:id — requiere token (manager o developer)
-    // Guarda resolved_by con el username del token
+    // PUT /tickets/:id — requires token (manager or developer)
+    // Stores resolved_by with the username from the token
     server.Put("/tickets/(\\d+)", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
 
@@ -568,15 +570,15 @@ int main() {
     });
 
 
-    // POST /users — manager crea un developer
-    // Recibe: { "username": "...", "password": "...", "team": "..." }
+    // POST /users — manager creates a developer
+    // Receives: { "username": "...", "password": "...", "team": "..." }
     server.Post("/users", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
 
         string payload = authenticate(req, res);
         if (payload.empty()) return;
 
-        // Solo managers pueden crear usuarios
+        // Only managers may create users
         if (getJWTField(payload, "role") != "manager") {
             res.status = 403;
             res.set_content("{\"error\":\"Forbidden\"}", "application/json");
@@ -612,7 +614,7 @@ int main() {
         int rc = sqlite3_step(stmt);
         sqlite3_finalize(stmt);
 
-        // SQLITE_CONSTRAINT significa que el username ya existe (UNIQUE)
+        // SQLITE_CONSTRAINT means the username already exists (UNIQUE)
         if (rc == SQLITE_CONSTRAINT) {
             res.status = 409;
             res.set_content("{\"error\":\"Username already exists\"}", "application/json");
@@ -630,7 +632,7 @@ int main() {
         );
     });
 
-    // GET /users — manager lista todos los developers
+    // GET /users — manager lists every developer
     server.Get("/users", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
 
@@ -667,8 +669,8 @@ int main() {
         res.set_content(json, "application/json");
     });
 
-    // PUT /users/:id/team — manager cambia el equipo de un developer
-    // Recibe: { "team": "..." }
+    // PUT /users/:id/team — manager changes a developer's team
+    // Receives: { "team": "..." }
     server.Put("/users/(\\d+)/team", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
 
@@ -707,8 +709,8 @@ int main() {
     });
 
 
-    // PUT /tickets/:id/assign — manager asigna ticket a un equipo
-    // Recibe: { "team": "..." }
+    // PUT /tickets/:id/assign — manager assigns a ticket to a team
+    // Receives: { "team": "..." }
     server.Put("/tickets/(\\d+)/assign", [](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
 
