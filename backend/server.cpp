@@ -6,6 +6,7 @@
 #include <cctype>
 #include <sqlite3.h>
 #include <openssl/sha.h>
+#include <sodium.h>
 #include <openssl/hmac.h>
 #include <openssl/crypto.h>
 #include "httplib.h"
@@ -14,7 +15,7 @@ using namespace std;
 
 sqlite3* db;
 string JWT_SECRET;
-
+string HASH_DUMMY;
 
 // ─── Utilidades generales ─────────────────────────────────────────────────────
 
@@ -143,6 +144,21 @@ string hmacSha256(const string& key, const string& data) {
     // Convertir los bytes del digest a string para poder meterlo en Base64
     return string((char*)digest, 32);
 }
+
+// Argon2id — reemplaza a sha256() para passwords.
+// La sal es aleatoria y viaja dentro del string devuelto.
+string hashPassword(const string& password) {
+    char buf[crypto_pwhash_STRBYTES];
+
+    if (crypto_pwhash_str(buf,
+                          password.c_str(), password.size(),
+                          crypto_pwhash_OPSLIMIT_INTERACTIVE,
+                          crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) {
+        throw runtime_error("password hashing failed");
+    }
+    return string(buf);
+}
+
 
 // ─── JWT ─────────────────────────────────────────────────────────────────────
 // Estructura de un JWT: header.payload.signature
@@ -288,8 +304,15 @@ void seedManagers() {
         exit(1);
     }
     adminPassword = string(secret);
+    string hashed;
+    try{
+         hashed = hashPassword(adminPassword);
+    }
+    catch(const std::exception&){
+        cerr << "Server error\n";
+        exit(1);
+    }
     
-    string hashed = sha256(adminPassword);
     sqlite3_stmt* stmt;
     const char* sql = "INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, 'manager');";
     sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
@@ -328,8 +351,19 @@ int main() {
         cerr << "JWT_SECRET not set in environment\n";
         exit(1);
     }
+    if (sodium_init() == -1){
+        cerr << "Couldn't initialize sodium\n";
+        exit(1);
+    }
     JWT_SECRET = string(secret);
-
+    try{
+        HASH_DUMMY = hashPassword("00000000");
+    }
+    catch(const std::exception&){
+        cerr << "Failed to generate dummy password\n";
+        exit(1);
+    }
+    
     initDB();
     seedManagers();
 
@@ -357,33 +391,43 @@ int main() {
             return;
         }
 
-        // Buscar usuario en la BD comparando el hash del password
         sqlite3_stmt* stmt;
-        const char* sql = "SELECT role, team FROM users WHERE username=? AND password=?;";
+        const char* sql = "SELECT role, team, password FROM users WHERE username=?;";
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
         sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_STATIC);
-        string hashedPwd = sha256(password);
-        sqlite3_bind_text(stmt, 2, hashedPwd.c_str(), -1, SQLITE_STATIC);
 
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
-            string role = (const char*)sqlite3_column_text(stmt, 0);
-            const unsigned char* teamPtr = sqlite3_column_text(stmt, 1);
-            string team = teamPtr ? (const char*)teamPtr : "";
-            sqlite3_finalize(stmt);
-
-            string token = createJWT(username, role, team);
-            res.set_content(
-                "{\"token\":\"" + token + "\","
-                "\"role\":\"" + role + "\","
-                "\"team\":\"" + team + "\","
-                "\"username\":\"" + username + "\"}",
-                "application/json"
-            );
-        } else {
+        // Usuario no encontrado
+        if (sqlite3_step(stmt) != SQLITE_ROW) {
             sqlite3_finalize(stmt);
             res.status = 401;
+           [[maybe_unused]] int ignored = crypto_pwhash_str_verify(HASH_DUMMY.c_str(), password.c_str(), password.size());
             res.set_content("{\"error\":\"Invalid credentials\"}", "application/json");
+            
+            return;
         }
+
+        string role = (const char*)sqlite3_column_text(stmt, 0);
+        const unsigned char* teamPtr = sqlite3_column_text(stmt, 1);
+        string team = teamPtr ? (const char*)teamPtr : "";
+        string hashedPwd = (const char*)sqlite3_column_text(stmt, 2);
+        sqlite3_finalize(stmt);
+
+        // Password incorrecto — mismo status y mismo mensaje que arriba
+        if (crypto_pwhash_str_verify(hashedPwd.c_str(),
+                                    password.c_str(), password.size()) != 0) {
+            res.status = 401;
+            res.set_content("{\"error\":\"Invalid credentials\"}", "application/json");
+            return;
+        }
+
+        string token = createJWT(username, role, team);
+        res.set_content(
+            "{\"token\":\"" + token + "\","
+            "\"role\":\"" + role + "\","
+            "\"team\":\"" + team + "\","
+            "\"username\":\"" + username + "\"}",
+            "application/json"
+        );
     });
 
     // POST /alert — Splunk nos avisa (no requiere token — viene de Splunk)
@@ -395,15 +439,15 @@ int main() {
         try{
              error_rate = stod(error_rate_str);
         }
-        catch (const std::exception& e){
+        catch (const std::exception&){
             res.status = 400;
             res.set_content("{\"error\": \"Invalid error rate: must be a number\"}", "application/json");
             return;
         }
 
         if (error_rate < 0 || error_rate > 100) {
-        res.status = 400;
-        res.set_content("{\"error\": \"error_rate out of range\"}", "application/json");
+            res.status = 400;
+            res.set_content("{\"error\": \"error_rate out of range\"}", "application/json");
         return;
 }
         
@@ -548,8 +592,16 @@ int main() {
             res.set_content("{\"error\":\"Missing username or password\"}", "application/json");
             return;
         }
-
-        string hashed = sha256(password);
+        string hashed;
+        try{
+            hashed = hashPassword(password);
+        }
+        catch(const std::exception&){
+            res.status = 500;
+            res.set_content("{\"error\":\"Server error\"}", "application/json");
+            return;
+        }
+        
 
         sqlite3_stmt* stmt;
         const char* sql = "INSERT INTO users (username, password, role, team) VALUES (?, ?, 'developer', ?);";
