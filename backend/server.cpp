@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cctype>
 #include <sqlite3.h>
-#include <openssl/sha.h>
 #include <sodium.h>
 #include <openssl/hmac.h>
 #include <openssl/crypto.h>
@@ -119,18 +118,6 @@ string base64Decode(const string& input) {
 }
 
 // ─── Cryptography ─────────────────────────────────────────────────────────────
-
-// SHA-256: returns the hexadecimal hash of a string.
-// No longer used for password storage — that moved to Argon2id (see hashPassword).
-string sha256(const string& input) {
-    unsigned char hash[SHA256_DIGEST_LENGTH]; // 32-byte array
-    SHA256((const unsigned char*)input.c_str(), input.size(), hash);
-    // Convert the bytes to a hexadecimal string (e.g. "a3f2...")
-    ostringstream oss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++)
-        oss << hex << setw(2) << setfill('0') << (int)hash[i];
-    return oss.str();
-}
 
 // HMAC-SHA256: signs a message with a secret key.
 // Used to sign the JWT — proves the token was not tampered with
