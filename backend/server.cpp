@@ -15,6 +15,7 @@ using namespace std;
 sqlite3* db;
 string JWT_SECRET;
 string HASH_DUMMY;
+constexpr time_t JWT_TTL = 3600;
 
 // ─── General utilities ─────────────────────────────────────────────────────
 
@@ -155,11 +156,13 @@ string hashPassword(const string& password) {
 string createJWT(const string& username, const string& role, const string& team) {
     // Fixed header — declares the algorithm
     string header = base64Encode("{\"alg\":\"HS256\",\"typ\":\"JWT\"}");
-
+    time_t exp = time(nullptr) + JWT_TTL;
+    string expStr = to_string(exp);
     // Payload — user data (non-sensitive; visible once decoded)
     string payloadJson = "{\"username\":\"" + username + "\","
                          "\"role\":\"" + role + "\","
-                         "\"team\":\"" + team + "\"}";
+                         "\"team\":\"" + team + "\","
+                         "\"exp\":" + expStr + "}";
     string payload = base64Encode(payloadJson);
 
     // Signature — HMAC-SHA256 of header.payload using the secret key
@@ -193,7 +196,18 @@ string verifyJWT(const string& token) {
 
     // Decode and return the payload
     string payload = token.substr(dot1 + 1, dot2 - dot1 - 1);
-    return base64Decode(payload);
+    string decodedPayload = base64Decode(payload);
+    time_t exp;
+    try{
+        exp = stoll(extractField(decodedPayload, "exp")); 
+    }
+    catch(const std::exception&){
+        return "";
+    }
+    if (time(nullptr) >= exp) return "";
+
+
+    return decodedPayload;
 }
 
 // Extracts a field from the already-decoded payload.
