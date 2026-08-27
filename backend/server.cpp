@@ -317,6 +317,7 @@ void seedManagers() {
     sqlite3_stmt* stmt;
     const char* sql = "INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, 'manager');";
     sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    // TRANSIENT: SQLite copies the bytes, so a bound local string's lifetime never matters
     sqlite3_bind_text(stmt, 1, adminUsername.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, hashed.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_step(stmt);
@@ -395,7 +396,7 @@ int main() {
         sqlite3_stmt* stmt;
         const char* sql = "SELECT role, team, password FROM users WHERE username=?;";
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-        sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
 
         // User not found
         if (sqlite3_step(stmt) != SQLITE_ROW) {
@@ -461,8 +462,8 @@ int main() {
         const char* sql = "INSERT INTO tickets (timestamp, priority, error_rate, status) "
                           "VALUES (?, ?, ?, 'open');";
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-        sqlite3_bind_text(stmt, 1, timestamp.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 2, priority.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 1, timestamp.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, priority.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_double(stmt, 3, error_rate);
         sqlite3_step(stmt);
         sqlite3_finalize(stmt);
@@ -498,7 +499,7 @@ int main() {
                   "COALESCE(resolution_note,''), COALESCE(team,''), COALESCE(resolved_by,'') "
                   "FROM tickets WHERE team=? ORDER BY id DESC;";
             sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
-            sqlite3_bind_text(stmt, 1, team.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 1, team.c_str(), -1, SQLITE_TRANSIENT);
         }
 
         string json = "[";
@@ -538,8 +539,8 @@ int main() {
         sqlite3_stmt* stmt;
         const char* sql = "UPDATE tickets SET status='resolved', resolution_note=?, resolved_by=? WHERE id=?;";
         sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
-        sqlite3_bind_text(stmt, 1, resolution_note.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 2, username.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 1, resolution_note.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, username.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 3, id);
         sqlite3_step(stmt);
         sqlite3_finalize(stmt);
