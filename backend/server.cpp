@@ -315,7 +315,9 @@ void seedManagers() {
     }
     
     sqlite3_stmt* stmt;
-    const char* sql = "INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, 'manager');";
+    const char* sql = "INSERT INTO users (username, password, role) VALUES (?, ?, 'manager') "
+    "ON CONFLICT(username) DO UPDATE SET password = excluded.password;";
+
     sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
     // TRANSIENT: SQLite copies the bytes, so a bound local string's lifetime never matters
     sqlite3_bind_text(stmt, 1, adminUsername.c_str(), -1, SQLITE_TRANSIENT);
