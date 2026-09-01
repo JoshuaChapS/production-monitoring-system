@@ -15,7 +15,8 @@ using namespace std;
 sqlite3* db;
 string JWT_SECRET;
 string HASH_DUMMY;
-constexpr time_t JWT_TTL = 3600;
+constexpr time_t JWT_TTL = 900;
+constexpr time_t REFRESH_TTL = 7 * 24 * 3600;
 
 // ─── General utilities ─────────────────────────────────────────────────────
 
@@ -216,6 +217,50 @@ string getJWTField(const string& payload, const string& field) {
     return extractField(payload, field);
 }
 
+// ─── Refresh tokens ─────────────────────────────────────────────────────────
+// Issues a fresh refresh token for `username`. One session per user.
+// Returns the raw hex token to hand the client. Throws on any DB failure.
+string issueRefreshToken(const string& username) {
+    sqlite3_stmt* stmt;
+
+    // 1) One session: soft-revoke this user's currently-active tokens
+    const char* revokeSql =
+        "UPDATE refresh_tokens SET revoked=1 WHERE owner=? AND revoked=0;";
+    sqlite3_prepare_v2(db, revokeSql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("could not revoke old refresh tokens");
+    }
+    sqlite3_finalize(stmt);
+
+    // 2) Generate the token + the hash you store 
+    unsigned char raw[32];   char token[65];
+    unsigned char hash[32];  char tokenHash[65];
+    randombytes_buf(raw, sizeof raw);
+    sodium_bin2hex(token, sizeof token, raw, sizeof raw);
+    crypto_hash_sha256(hash, (const unsigned char*)token, 64);
+    sodium_bin2hex(tokenHash, sizeof tokenHash, hash, sizeof hash);
+
+    // 3) Expiry
+    time_t expiresAt = time(nullptr) + REFRESH_TTL;
+
+    // 4) Store it
+    const char* insertSql =
+        "INSERT INTO refresh_tokens(token_hash, owner, expires_at) VALUES (?, ?, ?);";
+    sqlite3_prepare_v2(db, insertSql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, tokenHash,        -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, username.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, expiresAt);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("could not store refresh token");
+    }
+    sqlite3_finalize(stmt);
+
+    return token;   // raw hex → client. The DB only ever holds its hash.
+}
+
 // ─── Authentication middleware ──────────────────────────────────────────────
 // Extracts the token from the Authorization: Bearer <token> header.
 // Verifies the signature and returns the payload, or "" if invalid
@@ -274,9 +319,21 @@ void initDB() {
         );
     )";
 
+    // refresh_tokens table - holds the long term tokens
+
+    const char* refreshTokensSql = R"(
+        CREATE TABLE IF NOT EXISTS refresh_tokens(
+            token_hash TEXT NOT NULL PRIMARY KEY,
+            owner TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            revoked INTEGER NOT NULL DEFAULT 0
+        );
+    )";
+
     char* errMsg = nullptr;
     sqlite3_exec(db, ticketsSql, nullptr, nullptr, &errMsg);
     sqlite3_exec(db, usersSql,   nullptr, nullptr, &errMsg);
+    sqlite3_exec(db, refreshTokensSql, nullptr, nullptr, &errMsg);
 
     // Migration: add the new tickets columns if they do not exist yet.
     // SQLite has no IF NOT EXISTS on ALTER TABLE, so we ignore the error
@@ -426,12 +483,22 @@ int main() {
             return;
         }
 
+        string refresh;
+        try {
+            refresh = issueRefreshToken(username);
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content("{\"error\":\"could not create session\"}", "application/json");
+            return;
+        }
+
         string token = createJWT(username, role, team);
         res.set_content(
             "{\"token\":\"" + token + "\","
             "\"role\":\"" + role + "\","
             "\"team\":\"" + team + "\","
-            "\"username\":\"" + username + "\"}",
+            "\"username\":\"" + username + "\","
+            "\"refresh\":\"" + refresh + "\"}",
             "application/json"
         );
     });
