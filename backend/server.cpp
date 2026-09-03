@@ -930,6 +930,31 @@ int main() {
         }
     });
 
+    // PUT /logout — requires token
+    // Logs out the refresh token with the username (revokes it). The client should discard its copy.
+    server.Put("/logout", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        string payload = authenticate(req, res);
+        if (payload.empty()) return;
+
+        string username = getJWTField(payload, "username");
+
+        sqlite3_stmt* stmt;
+        const char* sql = "UPDATE refresh_tokens SET revoked=1 WHERE owner=? AND revoked=0;";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (sqlite3_changes(db) == 0) {
+            res.status = 200;
+            res.set_content("{\"message\":\"Already logged out\"}", "application/json");
+            return;
+        }
+        res.set_content("{\"message\":\"Successfully logged out\"}", "application/json");
+    });
+
     cout << "Server running on port 8080\n";
     server.listen("0.0.0.0", 8080);
     return 0;
