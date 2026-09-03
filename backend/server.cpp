@@ -15,7 +15,8 @@ using namespace std;
 sqlite3* db;
 string JWT_SECRET;
 string HASH_DUMMY;
-constexpr time_t JWT_TTL = 3600;
+constexpr time_t JWT_TTL = 900;
+constexpr time_t REFRESH_TTL = 7 * 24 * 3600;
 
 // ─── General utilities ─────────────────────────────────────────────────────
 
@@ -216,6 +217,64 @@ string getJWTField(const string& payload, const string& field) {
     return extractField(payload, field);
 }
 
+// ─── Refresh tokens ─────────────────────────────────────────────────────────
+// Issues a fresh refresh token for `username`. One session per user.
+// Returns the raw hex token to hand the client. Throws on any DB failure.
+string issueRefreshToken(const string& username) {
+    sqlite3_stmt* stmt;
+
+    // 1) One session: soft-revoke this user's currently-active tokens
+    const char* revokeSql =
+        "UPDATE refresh_tokens SET revoked=1 WHERE owner=? AND revoked=0;";
+    sqlite3_prepare_v2(db, revokeSql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("could not revoke old refresh tokens");
+    }
+    sqlite3_finalize(stmt);
+
+    // 2) Generate the token + the hash you store 
+    unsigned char raw[32];   char token[65];
+    unsigned char hash[32];  char tokenHash[65];
+    randombytes_buf(raw, sizeof raw);
+    sodium_bin2hex(token, sizeof token, raw, sizeof raw);
+    crypto_hash_sha256(hash, (const unsigned char*)token, 64);
+    sodium_bin2hex(tokenHash, sizeof tokenHash, hash, sizeof hash);
+
+    // 3) Expiry
+    time_t expiresAt = time(nullptr) + REFRESH_TTL;
+
+    // 4) Store it
+    const char* insertSql =
+        "INSERT INTO refresh_tokens(token_hash, owner, expires_at) VALUES (?, ?, ?);";
+    sqlite3_prepare_v2(db, insertSql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, tokenHash,        -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, username.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 3, expiresAt);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("could not store refresh token");
+    }
+    sqlite3_finalize(stmt);
+
+    return token;   // raw hex → client. The DB only ever holds its hash.
+}
+
+void revokeRefreshToken(const string& tokenHash) {
+    sqlite3_stmt* stmt;
+    const char* revokeSql =
+        "UPDATE refresh_tokens SET revoked=1 WHERE token_hash=?;";
+    sqlite3_prepare_v2(db, revokeSql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, tokenHash.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("could not revoke old refresh tokens");
+    }
+
+    sqlite3_finalize(stmt);
+}
+
 // ─── Authentication middleware ──────────────────────────────────────────────
 // Extracts the token from the Authorization: Bearer <token> header.
 // Verifies the signature and returns the payload, or "" if invalid
@@ -274,9 +333,21 @@ void initDB() {
         );
     )";
 
+    // refresh_tokens table - holds the long term tokens
+
+    const char* refreshTokensSql = R"(
+        CREATE TABLE IF NOT EXISTS refresh_tokens(
+            token_hash TEXT NOT NULL PRIMARY KEY,
+            owner TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            revoked INTEGER NOT NULL DEFAULT 0
+        );
+    )";
+
     char* errMsg = nullptr;
     sqlite3_exec(db, ticketsSql, nullptr, nullptr, &errMsg);
     sqlite3_exec(db, usersSql,   nullptr, nullptr, &errMsg);
+    sqlite3_exec(db, refreshTokensSql, nullptr, nullptr, &errMsg);
 
     // Migration: add the new tickets columns if they do not exist yet.
     // SQLite has no IF NOT EXISTS on ALTER TABLE, so we ignore the error
@@ -426,12 +497,22 @@ int main() {
             return;
         }
 
+        string refresh;
+        try {
+            refresh = issueRefreshToken(username);
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content("{\"error\":\"could not create session\"}", "application/json");
+            return;
+        }
+
         string token = createJWT(username, role, team);
         res.set_content(
             "{\"token\":\"" + token + "\","
             "\"role\":\"" + role + "\","
             "\"team\":\"" + team + "\","
-            "\"username\":\"" + username + "\"}",
+            "\"username\":\"" + username + "\","
+            "\"refresh\":\"" + refresh + "\"}",
             "application/json"
         );
     });
@@ -756,6 +837,122 @@ int main() {
             "\"team\":\"" + team + "\"}",
             "application/json"
         );
+    });
+
+    // POST /refresh — exchange a valid refresh token for a new access token + a new refresh token.
+    // Rotation: the presented token is revoked as a side effect of issuing the replacement.
+    server.Post("/refresh", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        string presented = extractField(req.body, "refresh");
+        if (presented.empty()) {
+            res.status = 400;
+            res.set_content("{\"error\":\"Missing refresh token\"}", "application/json");
+            return;
+        }
+
+        if (presented.size() != 64) {
+            res.status = 401;
+            res.set_content("{\"error\":\"Invalid refresh token\"}", "application/json");
+            return;
+        }
+        // Hash it the SAME way issueRefreshToken did — over the 64 hex CHARS, not the 32 raw bytes.
+        // presented.size() must be 64 here; anything else can't be one of our tokens.
+        unsigned char hash[32];  char tokenHash[65];
+        crypto_hash_sha256(hash, (const unsigned char*)presented.c_str(), 64);
+        sodium_bin2hex(tokenHash, sizeof tokenHash, hash, sizeof hash);
+
+        sqlite3_stmt* stmt;
+
+
+        const char* sql = "SELECT owner, expires_at FROM refresh_tokens WHERE token_hash=? AND revoked=0";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, tokenHash, -1, SQLITE_TRANSIENT);
+
+        if (sqlite3_step(stmt) != SQLITE_ROW) {
+            sqlite3_finalize(stmt);          // finalize on EVERY path — this one is easy to forget
+            res.status = 401;
+            res.set_content("{\"error\":\"Invalid refresh token\"}", "application/json");
+            return;
+        }
+
+        string owner = (const char*)sqlite3_column_text(stmt, 0);
+        int64_t expires_at = sqlite3_column_int64(stmt, 1);
+        
+        time_t currentTime = time(nullptr);
+        sqlite3_finalize(stmt);
+
+        if (currentTime >= expires_at) {
+            res.status = 401;
+            try{
+                revokeRefreshToken(tokenHash);
+            }
+            catch(const std::exception&){
+                cerr << "Failed to revoke expired refresh token\n";
+            }     
+            res.set_content("{\"error\":\"Invalid refresh token\"}", "application/json");
+            return;
+        }
+
+
+
+        sql = "SELECT role, team FROM users WHERE username=?;";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, owner.c_str(), -1, SQLITE_TRANSIENT);
+
+        if (sqlite3_step(stmt) != SQLITE_ROW) {
+            sqlite3_finalize(stmt);          // finalize on EVERY path — this one is easy to forget
+            res.status = 401;
+            res.set_content("{\"error\":\"Invalid refresh token\"}", "application/json");
+            return;
+        }
+        string role = (const char*)sqlite3_column_text(stmt, 0);
+        const unsigned char* teamPtr = sqlite3_column_text(stmt, 1);
+        string team = teamPtr ? (const char*)teamPtr : "";
+        sqlite3_finalize(stmt);
+
+        string token = createJWT(owner, role, team);
+
+        try {
+            string newRefresh = issueRefreshToken(owner);
+            res.set_content(
+                "{\"token\":\"" + token + "\","
+                "\"role\":\"" + role + "\","
+                "\"team\":\"" + team + "\","
+                "\"username\":\"" + owner + "\","
+                "\"refresh\":\"" + newRefresh + "\"}",
+                "application/json"
+            );
+        } catch (const std::exception& e) {
+            res.status = 500;
+            res.set_content("{\"error\":\"could not create session\"}", "application/json");
+            return;
+        }
+    });
+
+    // PUT /logout — requires token
+    // Logs out the refresh token with the username (revokes it). The client should discard its copy.
+    server.Put("/logout", [](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        string payload = authenticate(req, res);
+        if (payload.empty()) return;
+
+        string username = getJWTField(payload, "username");
+
+        sqlite3_stmt* stmt;
+        const char* sql = "UPDATE refresh_tokens SET revoked=1 WHERE owner=? AND revoked=0;";
+        sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+        sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (sqlite3_changes(db) == 0) {
+            res.status = 200;
+            res.set_content("{\"message\":\"Already logged out\"}", "application/json");
+            return;
+        }
+        res.set_content("{\"message\":\"Successfully logged out\"}", "application/json");
     });
 
     cout << "Server running on port 8080\n";
