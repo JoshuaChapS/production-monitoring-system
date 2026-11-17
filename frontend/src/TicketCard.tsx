@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
 import type { Ticket } from './types'
 import { TEAMS } from './TeamPanel'
-import { API_URL } from './config'
+import { apiFetch } from './api'
 
 interface TicketCardProps extends Ticket {
-  token: string
   role: string
   onResolve: () => void
   onAssigned: () => void
@@ -13,45 +12,58 @@ interface TicketCardProps extends Ticket {
 function TicketCard({
   id, timestamp, priority, error_rate, status,
   resolution_note, team, resolved_by,
-  token, role, onResolve, onAssigned,
+  role, onResolve, onAssigned,
 }: TicketCardProps) {
   const [showResolve, setShowResolve] = useState(false)
   const [showAssign, setShowAssign]   = useState(false)
   const [note, setNote]               = useState('')
   const [selectedTeam, setSelectedTeam] = useState(TEAMS[0])
+  const [actionError, setActionError] = useState('')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setShowResolve(false); setShowAssign(false) }
+      if (e.key === 'Escape') { setShowResolve(false); setShowAssign(false); setActionError('') }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  const handleResolve = () => {
-    fetch(`${API_URL}/tickets/${id}`, {
+  /**
+   * Sends a PUT with a JSON body through apiFetch and reports whether the server accepted it.
+   * Returns true only for a 2xx status; a 401, 403, 404, 500 or a network failure all return false,
+   * so a failed action can never look like a successful one.
+   */
+  const sendUpdate = (path: string, body: object): Promise<boolean> =>
+    apiFetch(path, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ resolution_note: note }),
-    }).then(() => {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(res => res.ok)
+      .catch(() => false)
+
+  /** Resolves the ticket with the typed note. Closes the modal only if the server confirmed it. */
+  const handleResolve = () => {
+    sendUpdate(`/tickets/${id}`, { resolution_note: note }).then(ok => {
+      if (!ok) {
+        setActionError('Could not resolve the ticket. Try again.')
+        return
+      }
+      setActionError('')
       setShowResolve(false)
       setNote('')
       onResolve()
     })
   }
 
+  /** Assigns the ticket to the selected team. Closes the modal only if the server confirmed it. */
   const handleAssign = () => {
-    fetch(`${API_URL}/tickets/${id}/assign`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ team: selectedTeam }),
-    }).then(() => {
+    sendUpdate(`/tickets/${id}/assign`, { team: selectedTeam }).then(ok => {
+      if (!ok) {
+        setActionError('Could not assign the ticket. Try again.')
+        return
+      }
+      setActionError('')
       setShowAssign(false)
       onAssigned()
     })
@@ -152,10 +164,11 @@ function TicketCard({
               value={note}
               onChange={e => setNote(e.target.value)}
             />
+            {actionError && <p className="text-alert text-xs mt-2" role="alert">{actionError}</p>}
             <div className="flex justify-end gap-2 mt-4">
               <button
                 className="px-3 py-1.5 rounded text-faint hover:text-ink text-xs transition-colors"
-                onClick={() => { setShowResolve(false); setNote('') }}
+                onClick={() => { setShowResolve(false); setNote(''); setActionError('') }}
               >
                 Cancel
               </button>
@@ -193,10 +206,11 @@ function TicketCard({
             >
               {TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
+            {actionError && <p className="text-alert text-xs -mt-2 mb-4" role="alert">{actionError}</p>}
             <div className="flex justify-end gap-2">
               <button
                 className="px-3 py-1.5 rounded text-faint hover:text-ink text-xs transition-colors"
-                onClick={() => setShowAssign(false)}
+                onClick={() => { setShowAssign(false); setActionError('') }}
               >
                 Cancel
               </button>
