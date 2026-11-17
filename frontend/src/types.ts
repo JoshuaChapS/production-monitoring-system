@@ -14,4 +14,5 @@ export interface AuthUser {
   role: 'manager' | 'developer'
   team: string
   username: string
+  refresh: string
 }

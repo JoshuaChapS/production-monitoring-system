@@ -29,7 +29,6 @@ function LoginPage({ onLogin }: LoginPageProps) {
       .then(data => {
         setLoading(false)
         if (data.token) {
-          localStorage.setItem('auth', JSON.stringify(data))
           onLogin(data)
         } else {
           setError('Invalid credentials')

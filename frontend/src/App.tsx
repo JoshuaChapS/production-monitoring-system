@@ -3,39 +3,72 @@ import TicketCard from './TicketCard'
 import LoginPage from './LoginPage'
 import TeamPanel from './TeamPanel'
 import type { Ticket, AuthUser } from './types'
-import { API_URL } from './config'
+import { apiFetch, loadAuth, saveAuth, onAuthChange } from './api'
 
 function App() {
-  const [auth, setAuth]           = useState<AuthUser | null>(null)
+  // Start from the stored session, so a reload keeps the user logged in.
+  const [auth, setAuth]           = useState<AuthUser | null>(loadAuth)
   const [tickets, setTickets]     = useState<Ticket[]>([])
   const [activeTab, setActiveTab] = useState<'open' | 'resolved'>('open')
   const [showAll, setShowAll]     = useState(false)
+  // Time of the last poll that really returned tickets, and whether the latest poll failed.
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [pollFailed, setPollFailed]   = useState(false)
 
+  // Register once: every saveAuth() in api.ts (login, refresh, forced logout) now updates this component.
+  // Clearing everything on logout keeps the next user from briefly seeing the previous user's data.
   useEffect(() => {
-    const saved = localStorage.getItem('auth')
-    if (saved) setAuth(JSON.parse(saved))
+    onAuthChange(next => {
+      setAuth(next)
+      if (!next) {
+        setTickets([])
+        setLastUpdated(null)
+        setPollFailed(false)
+      }
+    })
+    return () => onAuthChange(() => {})
   }, [])
 
-  const fetchTickets = (token: string) => {
-    fetch(`${API_URL}/tickets`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then(data => { if (Array.isArray(data)) setTickets(data) })
+  /**
+   * Loads the ticket list through apiFetch, which handles an expired token by itself.
+   * Any other failure (server down, an error status, a body that is not a ticket list) marks the poll
+   * as failed so the dashboard says so, instead of silently showing old or empty data as current.
+   */
+  const fetchTickets = () => {
+    apiFetch('/tickets')
+      .then(res => {
+        if (!res.ok) throw new Error(`GET /tickets returned ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        if (!Array.isArray(data)) throw new Error('GET /tickets did not return a list')
+        setTickets(data)
+        setLastUpdated(new Date())
+        setPollFailed(false)
+      })
+      .catch(() => setPollFailed(true))
   }
 
+  // Poll every 5 seconds while logged in. Depends only on being logged in, not on the token itself,
+  // so a refresh in the background does not restart the timer.
+  const loggedIn = auth !== null
   useEffect(() => {
-    if (!auth) return
-    fetchTickets(auth.token)
-    const interval = setInterval(() => fetchTickets(auth.token), 5000)
+    if (!loggedIn) return
+    fetchTickets()
+    const interval = setInterval(fetchTickets, 5000)
     return () => clearInterval(interval)
-  }, [auth])
+  }, [loggedIn])
 
-  const handleLogin  = (user: AuthUser) => setAuth(user)
+  /** Called by LoginPage with the /login response; saveAuth stores it and updates the screen. */
+  const handleLogin = (user: AuthUser) => saveAuth(user)
+
+  /**
+   * Revokes the refresh token on the server (PUT /logout), then clears the local session.
+   * finally() clears it even if the server cannot be reached, so Sign out always signs out locally.
+   */
   const handleLogout = () => {
-    localStorage.removeItem('auth')
-    setAuth(null)
-    setTickets([])
+    apiFetch('/logout', { method: 'PUT' })
+      .finally(() => saveAuth(null))
   }
 
   if (!auth) return <LoginPage onLogin={handleLogin} />
@@ -75,6 +108,16 @@ function App() {
           </div>
         </div>
 
+        {/* Stale-data warning: on a monitoring dashboard, old numbers shown as current are the worst failure */}
+        {pollFailed && (
+          <p className="bg-alert-tint text-alert text-xs rounded px-3 py-2 mb-6" role="alert">
+            {lastUpdated
+              // No period after the time: some locales already end it with one ("9:39:41 p.m.").
+              ? `Ticket updates are failing, retrying every 5 seconds. Last good data: ${lastUpdated.toLocaleTimeString()}`
+              : 'Tickets could not be loaded. Retrying every 5 seconds.'}
+          </p>
+        )}
+
         {auth.role === 'developer' && auth.team && (
           <p className="text-dim text-xs -mt-4 mb-6">
             <span className="text-faint">Team:</span> {auth.team}
@@ -84,7 +127,7 @@ function App() {
         {/* Team management — managers only */}
         {auth.role === 'manager' && (
           <div className="mb-8">
-            <TeamPanel token={auth.token} />
+            <TeamPanel />
           </div>
         )}
 
@@ -139,10 +182,9 @@ function App() {
               <TicketCard
                 key={ticket.id}
                 {...ticket}
-                token={auth.token}
                 role={auth.role}
-                onResolve={() => fetchTickets(auth.token)}
-                onAssigned={() => fetchTickets(auth.token)}
+                onResolve={fetchTickets}
+                onAssigned={fetchTickets}
               />
             ))}
           </div>

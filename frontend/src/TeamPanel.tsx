@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { API_URL } from './config'
+import { apiFetch } from './api'
 
 interface Developer {
   id: number
@@ -8,13 +8,9 @@ interface Developer {
   team: string
 }
 
-interface TeamPanelProps {
-  token: string
-}
-
 const TEAMS = ['Backend', 'Frontend', 'Infrastructure', 'Database']
 
-function TeamPanel({ token }: TeamPanelProps) {
+function TeamPanel() {
   const [developers, setDevelopers]     = useState<Developer[]>([])
   const [newUsername, setNewUsername]   = useState('')
   const [newPassword, setNewPassword]   = useState('')
@@ -22,16 +18,19 @@ function TeamPanel({ token }: TeamPanelProps) {
   const [error, setError]               = useState('')
   const [success, setSuccess]           = useState('')
 
+  /** Loads the developer list (GET /users, managers only). Keeps the old list if the server did not send one. */
   const fetchDevelopers = () => {
-    fetch(`${API_URL}/users`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    apiFetch('/users')
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setDevelopers(data) })
   }
 
   useEffect(() => { fetchDevelopers() }, [])
 
+  /**
+   * Creates a developer account (POST /users). Shows the server's error message on failure,
+   * or a generic one if the server or network failed without sending one.
+   */
   const handleCreate = () => {
     setError('')
     setSuccess('')
@@ -39,12 +38,9 @@ function TeamPanel({ token }: TeamPanelProps) {
       setError('Username and password are required')
       return
     }
-    fetch(`${API_URL}/users`, {
+    apiFetch('/users', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: newUsername, password: newPassword, team: newTeam }),
     })
       .then(res => res.json())
@@ -58,17 +54,23 @@ function TeamPanel({ token }: TeamPanelProps) {
           fetchDevelopers()
         }
       })
+      .catch(() => setError('Could not reach the server'))
   }
 
+  /**
+   * Moves a developer to another team (PUT /users/:id/team), then reloads the list.
+   * Reloading on failure too puts the dropdown back to the real team instead of the one the user picked.
+   */
   const handleChangeTeam = (id: number, team: string) => {
-    fetch(`${API_URL}/users/${id}/team`, {
+    setError('')
+    apiFetch(`/users/${id}/team`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ team }),
-    }).then(() => fetchDevelopers())
+    })
+      .then(res => { if (!res.ok) setError('Could not change the team') })
+      .catch(() => setError('Could not reach the server'))
+      .finally(fetchDevelopers)
   }
 
   const inputClass =
